@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# Large data files
+data/raw/
+data/processed/
+data/collected_data/
+*.csv
+
+# Model files
+*.pkl
+*.joblib
+
+# Experiment outputs
+model/archive/
+back/models/experiments/
