@@ -78,21 +78,14 @@ def clean_date(series: pd.Series) -> pd.Series:
 
 
 def parse_oil_date(series: pd.Series) -> pd.Series:
-    """
-    oil_price_daily.csv의 깨진 날짜 컬럼 복원용.
-    예: 원래 '18년01월02일' 형태였던 값이 깨져도 숫자만 추출해서 2018-01-02로 변환.
-    """
     parsed = pd.to_datetime(series, errors="coerce")
 
-    # 정상 파싱이 대부분 성공하면 그대로 사용
     if parsed.notna().sum() > len(series) * 0.8:
         return parsed.dt.floor("D").astype("datetime64[ns]")
 
     def convert_one(value):
         digits = re.sub(r"\D", "", str(value))
 
-        # 예상 형태: YYMMDD
-        # 예: 180102 -> 2018-01-02
         if len(digits) >= 6:
             digits = digits[:6]
 
@@ -138,7 +131,8 @@ def clean_daily_value_df(
     result = result.drop_duplicates(subset=["date"], keep="last")
     result = result.reset_index(drop=True)
 
-    result[output_col] = result[output_col].ffill().bfill()
+    # [수정] 미래 데이터 누수 방지를 위해 .bfill() 제거하고 .ffill()만 유지
+    result[output_col] = result[output_col].ffill()
 
     print(
         f"[{output_col}] 날짜 파싱 전/후 행 수: " f"{before_rows} -> {after_date_rows}"
@@ -179,7 +173,6 @@ def load_oil_price() -> pd.DataFrame:
     result = df.rename(columns=rename_map)
     result = result[["date", "current_Dubai", "current_Brent", "current_WTI"]].copy()
 
-    # oil_price_daily.csv의 깨진 날짜 복원
     result["date"] = parse_oil_date(result["date"])
 
     for col in ["current_Dubai", "current_Brent", "current_WTI"]:
@@ -187,30 +180,25 @@ def load_oil_price() -> pd.DataFrame:
 
     before_rows = len(result)
 
-    # 1. 날짜가 복원되지 않은 행 삭제
     result = result.dropna(subset=["date"])
     after_date_rows = len(result)
 
-    # 2. 세 유종 가격 중 하나라도 없는 행 삭제
     price_cols = ["current_Dubai", "current_Brent", "current_WTI"]
 
     before_price_rows = len(result)
     result = result.dropna(subset=price_cols)
     after_price_rows = len(result)
 
-    # 3. 날짜 정렬 및 중복 제거
     result = result.sort_values("date")
     result = result.drop_duplicates(subset=["date"], keep="last")
     result = result.reset_index(drop=True)
 
-    # 4. 가격이 모두 존재하는 거래일 기준으로 10거래일 뒤 가격 생성
     for oil_col in ["Dubai", "Brent", "WTI"]:
         current_col = f"current_{oil_col}"
         future_col = f"future_{oil_col}"
 
         result[future_col] = result[current_col].shift(-FORECAST_HORIZON_TRADING_DAYS)
 
-    # 5. target date 생성
     result[TARGET_DATE_COL] = result["date"].shift(-FORECAST_HORIZON_TRADING_DAYS)
     result[TARGET_DATE_COL] = clean_date(result[TARGET_DATE_COL])
 
@@ -269,7 +257,8 @@ def load_gpr() -> pd.DataFrame:
     result = result.reset_index(drop=True)
 
     for col in needed:
-        result[col] = result[col].ffill().bfill()
+        # [수정] 미래 데이터 누수 방지를 위해 .bfill() 제거하고 .ffill()만 유지
+        result[col] = result[col].ffill()
 
     print("\n[GPR 정리 완료]")
     print("날짜 파싱 전 행 수:", before_rows)
@@ -556,7 +545,9 @@ def load_gdelt() -> pd.DataFrame:
 
     out["date"] = clean_date(out["date"])
     out = out.sort_values("date").reset_index(drop=True)
-    out = out.ffill().bfill()
+    
+    # [수정] 미래 데이터 누수 방지를 위해 .bfill() 제거하고 .ffill()만 유지
+    out = out.ffill()
 
     print("\n[GDELT 정리 완료]")
     print(out.head().to_string(index=False))
@@ -865,7 +856,8 @@ def merge_asof_feature(
     new_cols = [col for col in feat.columns if col != "date"]
 
     if new_cols:
-        merged[new_cols] = merged[new_cols].ffill().bfill()
+        # [수정] 미래 데이터 누수 방지를 위해 .bfill() 제거하고 .ffill()만 유지
+        merged[new_cols] = merged[new_cols].ffill()
 
     print(f"[병합 완료] {name}: +{len(new_cols)} cols -> {merged.shape}")
 
@@ -934,7 +926,6 @@ def make_oil_dataset(all_df: pd.DataFrame, oil_type: str) -> pd.DataFrame:
 
     before_rows = len(df)
 
-    # 학습에 필수인 값이 없는 행만 삭제
     df = df.dropna(subset=[current_col, future_col, TARGET_COL, TARGET_DATE_COL]).copy()
 
     after_rows = len(df)

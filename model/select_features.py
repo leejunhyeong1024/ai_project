@@ -22,6 +22,7 @@ from config import (
     SELECTED_FEATURES_PATH,
     SELECTED_EXTRA_TOP_K_LIST,
     TARGET_COL,
+    TRAIN_RATIO,
     ensure_directories,
 )
 
@@ -207,7 +208,9 @@ def prepare_xy(df: pd.DataFrame, features: list[str]):
     data = df[features + [TARGET_COL]].copy()
     data = data.replace([np.inf, -np.inf], np.nan)
 
-    X = data[features].fillna(0)
+    X = data[features]
+    # [수정] 0 대신 각 컬럼의 중앙값(median)으로 결측치를 채워 변수 랭킹 왜곡 방지
+    X = X.fillna(X.median()).fillna(0) # 만약 컬럼 전체가 NaN이라 median이 없으면 0으로 최종 방어
     y = data[TARGET_COL]
 
     return X, y
@@ -295,7 +298,6 @@ def score_features(df: pd.DataFrame, features: list[str]) -> pd.DataFrame:
 # Main
 # ==============================
 
-
 def main():
     ensure_directories()
 
@@ -303,7 +305,7 @@ def main():
     dataset_path = DATASET_PATHS[oil_type]
 
     print("=" * 80)
-    print("feature 선택 시작")
+    print("feature 선택 시작 (Data Leakage 방지 버전)")
     print("=" * 80)
     print("oil_type:", oil_type)
     print("dataset:", dataset_path)
@@ -312,30 +314,35 @@ def main():
         raise FileNotFoundError(f"dataset이 없습니다: {dataset_path}")
 
     df = pd.read_csv(dataset_path)
+    df = df.sort_values("date").reset_index(drop=True)
 
-    print("데이터 크기:", df.shape)
-    print("날짜 범위:", df["date"].min(), "~", df["date"].max())
+    # ----------------------------------------------------------------
+    # [핵심 개선] 오직 Train 데이터 구간(70%)만 떼어내서 후속 연산 진행
+    # ----------------------------------------------------------------
+    train_size = int(len(df) * TRAIN_RATIO)
+    train_df = df.iloc[:train_size].copy()
 
-    if TARGET_COL not in df.columns:
+    print("전체 데이터 크기:", df.shape)
+    print(f"변수 선택에 사용할 Train 데이터 크기 (상위 {TRAIN_RATIO*100}%):", train_df.shape)
+    print("Train 날짜 범위:", train_df["date"].min(), "~", train_df["date"].max())
+
+    if TARGET_COL not in train_df.columns:
         raise ValueError(f"target 컬럼이 없습니다: {TARGET_COL}")
 
-    base_features = get_base_features(df, oil_type)
-    extra_candidates = get_extra_candidate_features(df, oil_type)
+    # 이후 함수들에는 전체 'df' 대신 'train_df'를 집어넣음
+    base_features = get_base_features(train_df, oil_type)
+    extra_candidates = get_extra_candidate_features(train_df, oil_type)
 
     print("\nfeature 구성:")
     print("base feature 개수:", len(base_features))
     print("extra 후보 개수:", len(extra_candidates))
 
-    print("\nbase feature 일부:")
-    print(base_features[:50])
+    # 스코어링 함수에도 train_df를 투입
+    score_df = score_features(train_df, extra_candidates)
 
-    print("\nextra 후보 일부:")
-    print(extra_candidates[:50])
-
-    score_df = score_features(df, extra_candidates)
-
+    # (이하 json 저장 및 상위 30개 print 로직은 기존 코드와 동일하게 유지)
     score_df.to_csv(FEATURE_SCORE_PATH, index=False, encoding="utf-8-sig")
-
+    
     selected = {
         "oil_type": oil_type,
         "base_feature_set": "price_momentum_gpr",
@@ -344,14 +351,11 @@ def main():
         "selected_extra": {},
         "feature_sets": {},
     }
-
     selected["feature_sets"]["price_momentum_gpr"] = base_features
 
     for k in SELECTED_EXTRA_TOP_K_LIST:
         top_features = score_df.head(k)["feature"].tolist()
-
         selected["selected_extra"][f"top{k}"] = top_features
-
         selected["feature_sets"][f"price_momentum_gpr_selected_extra_{k}"] = (
             base_features + top_features
         )
@@ -360,19 +364,9 @@ def main():
         json.dump(selected, f, indent=4, ensure_ascii=False)
 
     print("\n" + "=" * 80)
-    print("extra feature 상위 30개")
+    print("extra feature 상위 30개 (Train 데이터 기준)")
     print("=" * 80)
     print(score_df.head(30).to_string(index=False))
-
-    print("\n저장 완료:")
-    print("feature score:", FEATURE_SCORE_PATH)
-    print("selected features:", SELECTED_FEATURES_PATH)
-
-    print("\n생성된 feature set:")
-    for name, features in selected["feature_sets"].items():
-        print(f"- {name}: {len(features)}개")
-
-    print("\nfeature 선택 완료")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from sklearn.linear_model import HuberRegressor, Lasso, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
 
 from config import (
     CURRENT_PRICE_COLUMNS,
@@ -74,40 +75,39 @@ def clean_feature_list(df: pd.DataFrame, features: list[str]) -> list[str]:
     return result
 
 
+# model/train.py
+
 def make_models() -> dict:
+    """
+    각 모델 군의 특성에 맞게 파이프라인을 최적화합니다.
+    선형 모델은 스케일링을 필수 적용하고, 트리 모델은 임퓨팅 후 스케일러 없이 직행합니다.
+    """
     return {
-        "ridge": Pipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("model", Ridge(alpha=1.0)),
-            ]
-        ),
-        "lasso": Pipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("model", Lasso(alpha=0.01, max_iter=50000, random_state=42)),
-            ]
-        ),
-        "huber": Pipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("model", HuberRegressor(max_iter=1000)),
-            ]
-        ),
-        "random_forest": RandomForestRegressor(
-            n_estimators=300,
-            max_depth=8,
-            min_samples_leaf=5,
-            random_state=42,
-            n_jobs=-1,
-        ),
-        "extra_trees": ExtraTreesRegressor(
-            n_estimators=300,
-            max_depth=8,
-            min_samples_leaf=5,
-            random_state=42,
-            n_jobs=-1,
-        ),
+        "ridge": Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("model", Ridge(alpha=1.0)),
+        ]),
+        "lasso": Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("model", Lasso(alpha=0.01, max_iter=50000, random_state=42)),
+        ]),
+        "huber": Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("model", HuberRegressor(max_iter=1000)),
+        ]),
+        "random_forest": Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            # 걷어냄: ("scaler", StandardScaler()),
+            ("model", RandomForestRegressor(n_estimators=300, max_depth=8, min_samples_leaf=5, random_state=42, n_jobs=-1)),
+        ]),
+        "extra_trees": Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            # 걷어냄: ("scaler", StandardScaler()),
+            ("model", ExtraTreesRegressor(n_estimators=300, max_depth=8, min_samples_leaf=5, random_state=42, n_jobs=-1)),
+        ]),
     }
 
 
@@ -126,7 +126,10 @@ def time_series_split(df: pd.DataFrame):
 
 def make_xy(df: pd.DataFrame, feature_cols: list[str]):
     X = df[feature_cols].copy()
-    X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
+    
+    # [수정] 무한대(inf) 값만 NaN으로 안전하게 치환
+    # 무작정 0으로 채우던 .fillna(0) 로직은 걷어내고 파이프라인의 SimpleImputer에 위임합니다.
+    X = X.replace([np.inf, -np.inf], np.nan)
 
     y = df[TARGET_COL].copy()
 
