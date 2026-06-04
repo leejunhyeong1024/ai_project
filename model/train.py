@@ -1,364 +1,131 @@
 # model/train.py
-
 from __future__ import annotations
 
 import json
 import pickle
-
 import numpy as np
 import pandas as pd
 
-from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
-from sklearn.linear_model import HuberRegressor, Lasso, Ridge
+from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBRegressor, XGBClassifier
 
 from config import (
-    CURRENT_PRICE_COLUMNS,
-    DATASET_PATHS,
-    EXPERIMENT_DIR,
-    PRIMARY_OIL_TYPE,
-    SELECTED_FEATURES_PATH,
-    TARGET_COL,
-    TRAIN_RESULTS_JSON_PATH,
-    TRAIN_RESULTS_PATH,
-    TRAIN_RATIO,
-    VAL_RATIO,
-    ensure_directories,
+    CURRENT_PRICE_COLUMNS, DATASET_PATHS, EXPERIMENT_DIR, PRIMARY_OIL_TYPE,
+    SELECTED_FEATURES_PATH, TARGET_COL, TRAIN_RESULTS_JSON_PATH, 
+    TRAIN_RESULTS_PATH, TRAIN_RATIO, VAL_RATIO, ensure_directories,
 )
 
-# ==============================
-# Utility
-# ==============================
-
-
 def load_selected_features() -> dict:
-    if not SELECTED_FEATURES_PATH.exists():
-        raise FileNotFoundError(
-            f"selected_features.json이 없습니다: {SELECTED_FEATURES_PATH}"
-        )
-
     with open(SELECTED_FEATURES_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def clean_feature_list(df: pd.DataFrame, features: list[str]) -> list[str]:
     numeric_cols = set(df.select_dtypes(include=["number"]).columns)
+    leak_keywords = ["future_", "target", "target_date", "answer_", "actual_", "predicted_", "error"]
+    return [c for c in features if c in numeric_cols and c != "date" and not any(k in c for k in leak_keywords)]
 
-    leak_keywords = [
-        "future_",
-        "target",
-        "target_date",
-        "answer_",
-        "actual_",
-        "predicted_",
-        "error",
-    ]
-
-    result = []
-
-    for col in features:
-        if col not in numeric_cols:
-            continue
-
-        if col in ["date"]:
-            continue
-
-        if any(keyword in col for keyword in leak_keywords):
-            continue
-
-        if col not in result:
-            result.append(col)
-
-    return result
-
-
-# model/train.py
-
-def make_models() -> dict:
-    """
-    각 모델 군의 특성에 맞게 파이프라인을 최적화합니다.
-    선형 모델은 스케일링을 필수 적용하고, 트리 모델은 임퓨팅 후 스케일러 없이 직행합니다.
-    """
+def make_hybrid_models() -> dict:
     return {
-        "ridge": Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-            ("model", Ridge(alpha=1.0)),
-        ]),
-        "lasso": Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-            ("model", Lasso(alpha=0.01, max_iter=50000, random_state=42)),
-        ]),
-        "huber": Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
-            ("model", HuberRegressor(max_iter=1000)),
-        ]),
-        "random_forest": Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
-            # 걷어냄: ("scaler", StandardScaler()),
-            ("model", RandomForestRegressor(n_estimators=300, max_depth=8, min_samples_leaf=5, random_state=42, n_jobs=-1)),
-        ]),
-        "extra_trees": Pipeline([
-            ("imputer", SimpleImputer(strategy="median")),
-            # 걷어냄: ("scaler", StandardScaler()),
-            ("model", ExtraTreesRegressor(n_estimators=300, max_depth=8, min_samples_leaf=5, random_state=42, n_jobs=-1)),
-        ]),
+        "hybrid_rf_ridge": {
+            "classifier": Pipeline([
+                ("imputer", SimpleImputer(strategy="median")),
+                ("model", XGBClassifier(n_estimators=300, max_depth=4, scale_pos_weight=20, random_state=42, n_jobs=-1))
+            ]),
+            "normal_reg": Pipeline([
+                ("imputer", SimpleImputer(strategy="median")),
+                ("model", RandomForestRegressor(n_estimators=300, max_depth=8, random_state=42, n_jobs=-1))
+            ]),
+            "shock_reg": Pipeline([
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+                ("model", Ridge(alpha=10.0))
+            ])
+        }
     }
-
 
 def time_series_split(df: pd.DataFrame):
     n = len(df)
-
     train_end = int(n * TRAIN_RATIO)
     val_end = int(n * (TRAIN_RATIO + VAL_RATIO))
-
-    train_df = df.iloc[:train_end].copy()
-    val_df = df.iloc[train_end:val_end].copy()
-    test_df = df.iloc[val_end:].copy()
-
-    return train_df, val_df, test_df
-
+    return df.iloc[:train_end].copy(), df.iloc[train_end:val_end].copy(), df.iloc[val_end:].copy()
 
 def make_xy(df: pd.DataFrame, feature_cols: list[str]):
-    X = df[feature_cols].copy()
-    
-    # [수정] 무한대(inf) 값만 NaN으로 안전하게 치환
-    # 무작정 0으로 채우던 .fillna(0) 로직은 걷어내고 파이프라인의 SimpleImputer에 위임합니다.
-    X = X.replace([np.inf, -np.inf], np.nan)
-
+    X = df[feature_cols].copy().replace([np.inf, -np.inf], np.nan)
     y = df[TARGET_COL].copy()
+    y_shock = df['target_shock'].copy() if 'target_shock' in df.columns else np.zeros(len(df))
+    return X, y, y_shock
 
-    return X, y
-
-
-def evaluate_prediction(
-    df: pd.DataFrame,
-    pred_change: np.ndarray,
-    current_col: str,
-) -> dict:
-    y_true_change = df[TARGET_COL].to_numpy()
-    current_price = df[current_col].to_numpy()
-
-    actual_future_price = current_price + y_true_change
-    predicted_future_price = current_price + pred_change
-    baseline_future_price = current_price
-
-    abs_error = np.abs(actual_future_price - predicted_future_price)
-
+def evaluate_prediction(df: pd.DataFrame, pred_change: np.ndarray, current_col: str) -> dict:
+    y_true = df[TARGET_COL].to_numpy()
+    curr = df[current_col].to_numpy()
+    abs_error = np.abs((curr + y_true) - (curr + pred_change))
+    n_mask, s20_mask = np.abs(y_true) <= 15, np.abs(y_true) > 15
+    def calc_mae(mask): return float(mean_absolute_error((curr+y_true)[mask], (curr+pred_change)[mask])) if mask.sum()>0 else float("nan")
     return {
-        "change_mae": float(mean_absolute_error(y_true_change, pred_change)),
-        "change_rmse": float(mean_squared_error(y_true_change, pred_change) ** 0.5),
-        "change_r2": float(r2_score(y_true_change, pred_change)),
-        "price_mae": float(
-            mean_absolute_error(actual_future_price, predicted_future_price)
-        ),
-        "price_rmse": float(
-            mean_squared_error(actual_future_price, predicted_future_price) ** 0.5
-        ),
-        "baseline_price_mae": float(
-            mean_absolute_error(actual_future_price, baseline_future_price)
-        ),
-        "baseline_price_rmse": float(
-            mean_squared_error(actual_future_price, baseline_future_price) ** 0.5
-        ),
-        "median_abs_error": float(np.median(abs_error)),
-        "max_abs_error": float(np.max(abs_error)),
-        "within_3_pct": float((abs_error <= 3).mean() * 100),
-        "within_5_pct": float((abs_error <= 5).mean() * 100),
-        "within_10_pct": float((abs_error <= 10).mean() * 100),
-        "actual_change_abs_gt_10_rows": int((np.abs(y_true_change) > 10).sum()),
-        "actual_change_abs_gt_20_rows": int((np.abs(y_true_change) > 20).sum()),
+        "price_mae": float(mean_absolute_error(curr + y_true, curr + pred_change)),
+        "normal_mae": calc_mae(n_mask),
+        "shock_gt_20_mae": calc_mae(s20_mask)
     }
-
-
-def save_experiment_model(
-    model,
-    oil_type: str,
-    feature_set_name: str,
-    model_name: str,
-):
-    model_path = EXPERIMENT_DIR / f"{oil_type}_{feature_set_name}_{model_name}.pkl"
-
-    with open(model_path, "wb") as f:
-        pickle.dump(model, f)
-
-    return model_path
-
-
-# ==============================
-# Main training
-# ==============================
-
 
 def main():
     ensure_directories()
-
     oil_type = PRIMARY_OIL_TYPE
-    dataset_path = DATASET_PATHS[oil_type]
-    current_col = CURRENT_PRICE_COLUMNS[oil_type]
-
-    print("=" * 80)
-    print("train 시작")
-    print("=" * 80)
-    print("oil_type:", oil_type)
-    print("dataset:", dataset_path)
-
-    if not dataset_path.exists():
-        raise FileNotFoundError(f"dataset이 없습니다: {dataset_path}")
-
-    df = pd.read_csv(dataset_path)
-    df = df.sort_values("date").reset_index(drop=True)
-
-    print("데이터 크기:", df.shape)
-    print("날짜 범위:", df["date"].min(), "~", df["date"].max())
-
-    selected = load_selected_features()
-    feature_sets = selected["feature_sets"]
-
+    df = pd.read_csv(DATASET_PATHS[oil_type]).sort_values("date").reset_index(drop=True)
     train_df, val_df, test_df = time_series_split(df)
-
-    print("\n데이터 분할:")
-    print("Train:", train_df.shape, train_df["date"].min(), "~", train_df["date"].max())
-    print("Val  :", val_df.shape, val_df["date"].min(), "~", val_df["date"].max())
-    print("Test :", test_df.shape, test_df["date"].min(), "~", test_df["date"].max())
-
-    models = make_models()
+    feature_sets = load_selected_features()["feature_sets"]
+    hybrid_dict = make_hybrid_models()
+    
     results = []
 
-    for feature_set_name, raw_feature_cols in feature_sets.items():
-        feature_cols = clean_feature_list(df, raw_feature_cols)
+    for f_name, raw_cols in feature_sets.items():
+        f_cols = clean_feature_list(df, raw_cols)
+        X_train, y_train, y_train_shock = make_xy(train_df, f_cols)
+        X_test, y_test, y_test_shock = make_xy(test_df, f_cols)
 
-        print("\n" + "-" * 80)
-        print("Feature set:", feature_set_name)
-        print("-" * 80)
-        print("feature 개수:", len(feature_cols))
+        for model_name, parts in hybrid_dict.items():
+            clf, norm_reg, shock_reg = parts["classifier"], parts["normal_reg"], parts["shock_reg"]
+            clf.fit(X_train, y_train_shock)
+            norm_mask = (y_train_shock == 0)
+            shock_mask = (y_train_shock == 1)
+            norm_reg.fit(X_train[norm_mask], y_train[norm_mask])
+            if shock_mask.sum() > 0:
+                shock_reg.fit(X_train[shock_mask], y_train[shock_mask])
+            else:
+                shock_reg = norm_reg
 
-        X_train, y_train = make_xy(train_df, feature_cols)
-        X_val, y_val = make_xy(val_df, feature_cols)
-        X_test, y_test = make_xy(test_df, feature_cols)
-
-        print("X_train:", X_train.shape)
-        print("X_val  :", X_val.shape)
-        print("X_test :", X_test.shape)
-
-        for model_name, model in models.items():
-            model.fit(X_train, y_train)
-
-            val_pred = model.predict(X_val)
-            test_pred = model.predict(X_test)
-
-            val_metrics = evaluate_prediction(
-                val_df,
-                val_pred,
-                current_col,
-            )
-
-            test_metrics = evaluate_prediction(
-                test_df,
-                test_pred,
-                current_col,
-            )
-
-            model_path = save_experiment_model(
-                model,
-                oil_type,
-                feature_set_name,
-                model_name,
-            )
-
-            row = {
-                "oil_type": oil_type,
-                "feature_set": feature_set_name,
-                "model": model_name,
-                "feature_count": len(feature_cols),
-                "model_path": str(model_path),
-                "val_price_mae": val_metrics["price_mae"],
-                "val_price_rmse": val_metrics["price_rmse"],
-                "val_change_r2": val_metrics["change_r2"],
-                "val_baseline_price_mae": val_metrics["baseline_price_mae"],
-                "test_price_mae": test_metrics["price_mae"],
-                "test_price_rmse": test_metrics["price_rmse"],
-                "test_change_r2": test_metrics["change_r2"],
-                "test_baseline_price_mae": test_metrics["baseline_price_mae"],
-                "test_baseline_price_rmse": test_metrics["baseline_price_rmse"],
-                "test_median_abs_error": test_metrics["median_abs_error"],
-                "test_max_abs_error": test_metrics["max_abs_error"],
-                "test_within_3_pct": test_metrics["within_3_pct"],
-                "test_within_5_pct": test_metrics["within_5_pct"],
-                "test_within_10_pct": test_metrics["within_10_pct"],
-                "test_actual_change_abs_gt_10_rows": test_metrics[
-                    "actual_change_abs_gt_10_rows"
-                ],
-                "test_actual_change_abs_gt_20_rows": test_metrics[
-                    "actual_change_abs_gt_20_rows"
-                ],
-            }
-
+            shock_probs = clf.predict_proba(X_test)[:, 1]
+            pred_shock_labels = (shock_probs >= 0.30).astype(int)
+            test_pred = np.zeros(len(X_test))
+            
+            mask_norm = (pred_shock_labels == 0)
+            mask_shock = (pred_shock_labels == 1)
+            
+            if mask_norm.any(): test_pred[mask_norm] = norm_reg.predict(X_test[mask_norm])
+            if mask_shock.any(): test_pred[mask_shock] = shock_reg.predict(X_test[mask_shock])
+            
+            metrics = evaluate_prediction(test_df, test_pred, CURRENT_PRICE_COLUMNS[oil_type])
+            
+            # [수정] 결과 저장 로직 추가
+            row = {"feature_set": f_name, "model": model_name, **metrics}
             results.append(row)
+            
+            actual_shocks = int(y_test_shock.sum())
+            predicted_shocks = int(pred_shock_labels.sum())
+            
+            print(f"[{f_name}] {model_name:15s}")
+            print(f"   -> 🔍 팩트체크: Test 쇼크 {actual_shocks}일 중 {predicted_shocks}일 감지")
+            print(f"   -> 📈 오차분석: 전체 MAE={metrics['price_mae']:.2f}% | 쇼크 MAE={metrics['shock_gt_20_mae']:.2f}%")
+            print("-" * 60)
 
-            print(
-                f"{model_name:14s} | "
-                f"VAL MAE={val_metrics['price_mae']:.6f} | "
-                f"TEST MAE={test_metrics['price_mae']:.6f} | "
-                f"TEST RMSE={test_metrics['price_rmse']:.6f} | "
-                f"TEST R2={test_metrics['change_r2']:.6f} | "
-                f"TEST <=5$={test_metrics['within_5_pct']:.2f}%"
-            )
-
-    result_df = pd.DataFrame(results)
-
-    result_df = result_df.sort_values(
-        ["test_price_mae", "test_price_rmse"],
-        ascending=[True, True],
-    ).reset_index(drop=True)
-
-    result_df.to_csv(TRAIN_RESULTS_PATH, index=False, encoding="utf-8-sig")
-
+    pd.DataFrame(results).to_csv(TRAIN_RESULTS_PATH, index=False, encoding="utf-8-sig")
     with open(TRAIN_RESULTS_JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(result_df.to_dict(orient="records"), f, indent=4, ensure_ascii=False)
-
-    print("\n" + "=" * 80)
-    print("학습 결과 요약")
-    print("=" * 80)
-
-    display_cols = [
-        "feature_set",
-        "model",
-        "feature_count",
-        "test_price_mae",
-        "test_price_rmse",
-        "test_baseline_price_mae",
-        "test_median_abs_error",
-        "test_max_abs_error",
-        "test_within_5_pct",
-        "test_within_10_pct",
-        "test_change_r2",
-    ]
-
-    print(result_df[display_cols].to_string(index=False))
-
-    best = result_df.iloc[0]
-
-    print("\n최고 성능:")
-    print("feature_set:", best["feature_set"])
-    print("model:", best["model"])
-    print("feature_count:", best["feature_count"])
-    print("test_price_mae:", best["test_price_mae"])
-    print("test_price_rmse:", best["test_price_rmse"])
-    print("baseline_price_mae:", best["test_baseline_price_mae"])
-    print("model_path:", best["model_path"])
-
-    print("\n저장 완료:")
-    print("train results:", TRAIN_RESULTS_PATH)
-    print("train results json:", TRAIN_RESULTS_JSON_PATH)
-
-    print("\ntrain 완료")
-
+        json.dump(results, f, indent=4, ensure_ascii=False)
+    print("하이브리드 파이프라인 학습 완료 및 저장 성공!")
 
 if __name__ == "__main__":
     main()
