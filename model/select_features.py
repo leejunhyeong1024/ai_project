@@ -16,9 +16,10 @@ from config import (
     CURRENT_PRICE_COLUMNS,
     DATASET_PATHS,
     FEATURE_SCORE_PATH,
-    PRIMARY_OIL_TYPE,
+    FEATURE_SCORE_PATHS,
     SELECTED_EXTRA_TOP_K_LIST,
     SELECTED_FEATURES_PATH,
+    SELECTED_FEATURES_PATHS,
     TARGET_COL,
     TRAIN_RATIO,
     ensure_directories,
@@ -79,8 +80,16 @@ def numeric_existing_features(df: pd.DataFrame, features: list[str]) -> list[str
     result = []
 
     for col in features:
-        if col in numeric_cols:
-            result.append(col)
+        if col not in numeric_cols:
+            continue
+
+        if is_high_missing_removal_target(col):
+            missing_ratio = df[col].isna().mean()
+
+            if missing_ratio >= 0.30:
+                continue
+
+        result.append(col)
 
     result = remove_leak_features(result)
     result = unique_list(result)
@@ -139,12 +148,12 @@ def is_gdelt_feature(col: str) -> bool:
 def is_acled_feature(col: str) -> bool:
     patterns = [
         "MiddleEast_",
+        "Russia_Eurasia_",
         "NorthAmerica_",
         "LatinAmerica_",
-        "Russia_",
+        "Europe_",
         "Other_",
-        "global_total_events",
-        "global_total_fatalities",
+        "Global_",
     ]
 
     return any(col.startswith(pattern) for pattern in patterns)
@@ -212,9 +221,9 @@ def get_gdelt_event_features(df: pd.DataFrame) -> list[str]:
     """
 
     keywords = [
-        "gdelt_hormuz_risk_count",
-        "gdelt_gulf_supply_disruption_count",
-        "gdelt_oil_infrastructure_attack_count",
+        "hormuz_risk_count",
+        "gulf_supply_disruption_count",
+        "oil_infrastructure_attack_count",
     ]
 
     wanted = []
@@ -227,6 +236,32 @@ def get_gdelt_event_features(df: pd.DataFrame) -> list[str]:
             wanted.append(col)
 
     return numeric_existing_features(df, wanted)
+
+
+def get_region_conflict_features(df: pd.DataFrame) -> list[str]:
+    """
+    지역 통합 ACLED conflict feature set.
+    국가별 세부 분쟁 feature 대신 지역별 통합 feature를 사용한다.
+    """
+
+    wanted = []
+
+    for col in df.columns:
+        if is_acled_feature(col):
+            wanted.append(col)
+
+    return numeric_existing_features(df, wanted)
+
+
+def get_region_conflict_gdelt_features(df: pd.DataFrame) -> list[str]:
+    """
+    지역 통합 ACLED conflict + GDELT event/tone feature set.
+    """
+
+    conflict_features = get_region_conflict_features(df)
+    gdelt_features = get_gdelt_event_tone_features(df)
+
+    return unique_list(conflict_features + gdelt_features)
 
 
 def get_gdelt_event_tone_features(df: pd.DataFrame) -> list[str]:
@@ -345,18 +380,33 @@ def score_features(df: pd.DataFrame, features: list[str]) -> pd.DataFrame:
     return score_df
 
 
-# ==============================
-# Main
-# ==============================
+def is_high_missing_removal_target(col: str) -> bool:
+    patterns = [
+        "Dubai_to_WTI",
+        "Dubai_to_Brent",
+        "Brent_to_WTI",
+        "WTI_minus_Dubai",
+        "Brent_minus_WTI",
+        "Brent_minus_Dubai",
+    ]
+
+    return any(pattern in col for pattern in patterns)
 
 
-def main():
-    ensure_directories()
-
-    oil_type = PRIMARY_OIL_TYPE
+def run_for_oil_type(oil_type: str):
     dataset_path = DATASET_PATHS[oil_type]
 
-    print("=" * 80)
+    selected_features_path = SELECTED_FEATURES_PATHS.get(
+        oil_type,
+        SELECTED_FEATURES_PATH,
+    )
+
+    feature_score_path = FEATURE_SCORE_PATHS.get(
+        oil_type,
+        FEATURE_SCORE_PATH,
+    )
+
+    print("\n" + "=" * 80)
     print("feature 선택 시작")
     print("=" * 80)
     print("oil_type:", oil_type)
@@ -397,10 +447,12 @@ def main():
     print(extra_candidates[:50])
 
     score_df = score_features(train_df, extra_candidates)
-    score_df.to_csv(FEATURE_SCORE_PATH, index=False, encoding="utf-8-sig")
+    score_df.to_csv(feature_score_path, index=False, encoding="utf-8-sig")
 
     gdelt_event_features = get_gdelt_event_features(train_df)
     gdelt_event_tone_features = get_gdelt_event_tone_features(train_df)
+    region_conflict_features = get_region_conflict_features(train_df)
+    region_conflict_gdelt_features = get_region_conflict_gdelt_features(train_df)
 
     selected = {
         "oil_type": oil_type,
@@ -440,17 +492,30 @@ def main():
         base_features + gdelt_event_tone_features
     )
 
-    with open(SELECTED_FEATURES_PATH, "w", encoding="utf-8") as f:
+    selected["selected_extra"]["region_conflict_manual"] = region_conflict_features
+    selected["selected_extra"][
+        "region_conflict_gdelt_manual"
+    ] = region_conflict_gdelt_features
+
+    selected["feature_sets"]["price_momentum_gpr_region_conflict"] = unique_list(
+        base_features + region_conflict_features
+    )
+
+    selected["feature_sets"]["price_momentum_gpr_region_conflict_gdelt"] = unique_list(
+        base_features + region_conflict_gdelt_features
+    )
+
+    with open(selected_features_path, "w", encoding="utf-8") as f:
         json.dump(selected, f, indent=4, ensure_ascii=False)
 
     print("\n" + "=" * 80)
-    print("extra feature 상위 30개")
+    print(f"{oil_type.upper()} extra feature 상위 30개")
     print("=" * 80)
     print(score_df.head(30).to_string(index=False))
 
     print("\n저장 완료:")
-    print("feature score:", FEATURE_SCORE_PATH)
-    print("selected features:", SELECTED_FEATURES_PATH)
+    print("feature score:", feature_score_path)
+    print("selected features:", selected_features_path)
 
     print("\n생성된 feature set:")
     for name, features in selected["feature_sets"].items():
@@ -464,7 +529,59 @@ def main():
     print("개수:", len(gdelt_event_tone_features))
     print(gdelt_event_tone_features[:50])
 
-    print("\nfeature 선택 완료")
+    print("\n지역 통합 conflict feature:")
+    print("개수:", len(region_conflict_features))
+    print(region_conflict_features[:50])
+
+    print("\n지역 통합 conflict + GDELT feature:")
+    print("개수:", len(region_conflict_gdelt_features))
+    print(region_conflict_gdelt_features[:50])
+
+    print(f"\n{oil_type.upper()} feature 선택 완료")
+
+    return selected
+
+
+# ==============================
+# Main
+# ==============================
+
+
+def main():
+    ensure_directories()
+
+    oil_types = ["dubai", "wti", "brent"]
+
+    all_selected_summary = {}
+
+    for oil_type in oil_types:
+        selected = run_for_oil_type(oil_type)
+        all_selected_summary[oil_type] = {
+            "selected_features_path": str(
+                SELECTED_FEATURES_PATHS.get(oil_type, SELECTED_FEATURES_PATH)
+            ),
+            "feature_sets": {
+                name: len(features)
+                for name, features in selected["feature_sets"].items()
+            },
+        }
+
+    # 호환용 summary 저장
+    summary_path = SELECTED_FEATURES_PATH.parent / "selected_features_summary.json"
+
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(all_selected_summary, f, indent=4, ensure_ascii=False)
+
+    print("\n" + "=" * 80)
+    print("전체 유종 feature 선택 완료")
+    print("=" * 80)
+    print("summary:", summary_path)
+
+    for oil_type, info in all_selected_summary.items():
+        print("\n", oil_type.upper())
+        print("selected_features_path:", info["selected_features_path"])
+        for name, count in info["feature_sets"].items():
+            print(f"- {name}: {count}개")
 
 
 if __name__ == "__main__":

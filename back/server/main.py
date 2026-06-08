@@ -3,84 +3,71 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 
 try:
-    from back.server.config import (
-        PREDICTION_HORIZON_TRADING_DAYS,
-        ensure_server_directories,
-        print_server_paths,
+    from back.server.feature_builder import load_default_features
+    from back.server.model_loader import (
+        get_model_bundle,
+        load_models,
+        normalize_oil_type,
+        summarize_models,
     )
-    from back.server.feature_builder import (
-        build_feature_vector,
-        get_current_price,
-        get_default_feature_summary,
-        load_default_features,
-    )
-    from back.server.model_loader import load_models, summarize_loaded_models
-    from back.server.model_router import get_available_features, select_model_type
+    from back.server.model_router import route_model_type
     from back.server.schemas import (
+        DefaultPredictionResponse,
         FeatureListResponse,
         HealthResponse,
         ModelSummaryResponse,
-        PredictionResponse,
+        SimulationPredictionResponse,
         SimulationRequest,
+        StatusResponse,
     )
-except ModuleNotFoundError:
-    from config import (
-        PREDICTION_HORIZON_TRADING_DAYS,
-        ensure_server_directories,
-        print_server_paths,
+except ImportError:
+    from feature_builder import load_default_features
+    from model_loader import (
+        get_model_bundle,
+        load_models,
+        normalize_oil_type,
+        summarize_models,
     )
-    from feature_builder import (
-        build_feature_vector,
-        get_current_price,
-        get_default_feature_summary,
-        load_default_features,
-    )
-    from model_loader import load_models, summarize_loaded_models
-    from model_router import get_available_features, select_model_type
+    from model_router import route_model_type
     from schemas import (
+        DefaultPredictionResponse,
         FeatureListResponse,
         HealthResponse,
         ModelSummaryResponse,
-        PredictionResponse,
+        SimulationPredictionResponse,
         SimulationRequest,
+        StatusResponse,
     )
 
-
-# ==============================
-# App setup
-# ==============================
-
-ensure_server_directories()
 
 app = FastAPI(
     title="Oil Price Prediction API",
-    description="Dubai oil price 10-trading-day prediction server",
+    description="Dubai / WTI / Brent 10-trading-day oil price prediction API",
     version="1.0.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+MODELS = None
 
-# pkl 파일은 조금 이따 만들 예정이라고 했으므로,
-# 서버 import 자체가 죽지 않게 지연 로딩 처리.
-MODELS: dict | None = None
+CURRENT_PRICE_COLUMNS = {
+    "dubai": "current_Dubai",
+    "wti": "current_WTI",
+    "brent": "current_Brent",
+}
+
+DISPLAY_OIL_NAMES = {
+    "dubai": "Dubai",
+    "wti": "WTI",
+    "brent": "Brent",
+}
+
+HORIZON_TRADING_DAYS = 10
 
 
-# ==============================
-# Internal utils
-# ==============================
-
-
-def get_models() -> dict:
+def get_models():
     global MODELS
 
     if MODELS is None:
@@ -89,188 +76,71 @@ def get_models() -> dict:
     return MODELS
 
 
-def predict_return_with_bundle(
-    model_bundle: dict,
-    user_features: dict | None = None,
-) -> float:
-    X = build_feature_vector(model_bundle, user_features)
+def make_model_input(
+    feature_values: dict,
+    feature_cols: list[str],
+) -> pd.DataFrame:
+    row = {}
 
-    # 단일 회귀 모델 bundle
-    if "model" in model_bundle:
-        model = model_bundle["model"]
-        pred = model.predict(X)
-        return float(np.asarray(pred).ravel()[0])
+    for col in feature_cols:
+        row[col] = feature_values.get(col, np.nan)
 
-    # 혹시 hybrid bundle이 들어와도 일단 대응
-    if all(key in model_bundle for key in ["classifier", "normal_reg", "shock_reg"]):
-        classifier = model_bundle["classifier"]
-        normal_reg = model_bundle["normal_reg"]
-        shock_reg = model_bundle["shock_reg"]
-        threshold = float(model_bundle.get("threshold", 0.5))
+    X = pd.DataFrame([row], columns=feature_cols)
+    X = X.replace([np.inf, -np.inf], np.nan)
 
-        prob = classifier.predict_proba(X)
-
-        if prob.shape[1] == 1:
-            shock_prob = 0.0
-        else:
-            shock_prob = float(prob[:, 1][0])
-
-        if shock_prob >= threshold:
-            pred = shock_reg.predict(X)
-        else:
-            pred = normal_reg.predict(X)
-
-        return float(np.asarray(pred).ravel()[0])
-
-    raise ValueError("지원하지 않는 model_bundle 구조입니다.")
+    return X
 
 
-def build_prediction_response(
-    model_type: str,
+def predict_with_bundle(
     oil_type: str,
-    pred_return_pct: float,
+    model_type: str,
+    feature_values: dict,
 ) -> dict:
-    current_price = get_current_price(oil_type)
-    predicted_price = current_price * (1 + pred_return_pct / 100)
+    models = get_models()
+
+    oil = normalize_oil_type(oil_type)
+    bundle = get_model_bundle(models, oil, model_type)
+
+    feature_cols = bundle["feature_cols"]
+    model = bundle["model"]
+
+    current_col = CURRENT_PRICE_COLUMNS[oil]
+
+    if current_col not in feature_values:
+        raise ValueError(f"default feature에 현재 가격 컬럼이 없습니다: {current_col}")
+
+    current_price = float(feature_values[current_col])
+
+    X = make_model_input(feature_values, feature_cols)
+    pred_return = float(np.asarray(model.predict(X)).ravel()[0])
+
+    predicted_price = current_price * (1 + pred_return / 100)
 
     return {
+        "oil_type": DISPLAY_OIL_NAMES[oil],
         "model_type": model_type,
-        "oil_type": oil_type,
-        "current_price": float(current_price),
-        "predicted_return_pct": float(pred_return_pct),
+        "current_price": current_price,
+        "predicted_return_pct": pred_return,
         "predicted_price_10d": float(predicted_price),
-        "horizon_trading_days": PREDICTION_HORIZON_TRADING_DAYS,
-        "message": f"{model_type} model prediction completed",
+        "horizon_trading_days": HORIZON_TRADING_DAYS,
+        "feature_count": len(feature_cols),
+        "feature_set": bundle.get("feature_set"),
+        "model_name": bundle.get("model_name"),
+        "train_cutoff": bundle.get("train_cutoff"),
     }
 
 
-# ==============================
-# Endpoints
-# ==============================
+@app.get("/api/health", response_model=HealthResponse)
+def health():
+    return {"status": "ok"}
 
 
-@app.get("/", response_model=HealthResponse)
-def health_check():
-    return {
-        "status": "ok",
-        "message": "Oil price prediction server is running",
-    }
-
-
-@app.get("/api/paths")
-def show_paths():
-    print_server_paths()
-
-    return {
-        "message": "Server paths printed to terminal",
-    }
-
-
-@app.get("/api/models", response_model=ModelSummaryResponse)
-def model_summary():
-    try:
-        models = get_models()
-        return {
-            "models": summarize_loaded_models(models),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/features", response_model=FeatureListResponse)
-def feature_list():
-    return {
-        "features": get_available_features(),
-    }
-
-
-@app.get("/api/default-features")
-def default_feature_summary():
-    try:
-        return {
-            "default_features": get_default_feature_summary(),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/predict/default", response_model=PredictionResponse)
-def predict_default():
-    try:
-        models = get_models()
-
-        model_type = "default"
-        model_bundle = models[model_type]
-
-        pred_return_pct = predict_return_with_bundle(
-            model_bundle=model_bundle,
-            user_features={},
-        )
-
-        return build_prediction_response(
-            model_type=model_type,
-            oil_type="Dubai",
-            pred_return_pct=pred_return_pct,
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/predict/simulation", response_model=PredictionResponse)
-def predict_simulation(request: SimulationRequest):
-    try:
-        user_features = request.selected_features or {}
-
-        model_type = select_model_type(user_features)
-
-        models = get_models()
-        model_bundle = models[model_type]
-
-        pred_return_pct = predict_return_with_bundle(
-            model_bundle=model_bundle,
-            user_features=user_features,
-        )
-
-        return build_prediction_response(
-            model_type=model_type,
-            oil_type=request.oil_type,
-            pred_return_pct=pred_return_pct,
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/reload-models")
-def reload_models():
-    """
-    모델 담당자가 final pkl 파일을 교체한 뒤 서버에서 모델 재로드할 때 사용.
-    """
-
-    global MODELS
-
-    try:
-        MODELS = load_models()
-
-        return {
-            "message": "Models reloaded successfully",
-            "models": summarize_loaded_models(MODELS),
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/status")
+@app.get("/api/status", response_model=StatusResponse)
 def status():
-    """
-    pkl이 아직 없어도 서버 상태 확인 가능하게 만든 endpoint.
-    """
-
     status_result = {
         "server": "running",
         "models_loaded": MODELS is not None,
+        "default_features_available": False,
     }
 
     try:
@@ -282,3 +152,89 @@ def status():
         status_result["default_feature_error"] = str(e)
 
     return status_result
+
+
+@app.post("/api/reload-models", response_model=ModelSummaryResponse)
+def reload_models():
+    global MODELS
+
+    MODELS = load_models()
+
+    return {"models": summarize_models(MODELS)}
+
+
+@app.get("/api/models", response_model=ModelSummaryResponse)
+def models():
+    loaded = get_models()
+
+    return {"models": summarize_models(loaded)}
+
+
+@app.get("/api/default-features", response_model=FeatureListResponse)
+def default_features():
+    try:
+        defaults = load_default_features()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "feature_count": len(defaults),
+        "features": sorted(defaults.keys()),
+    }
+
+
+@app.get("/api/predict/default", response_model=DefaultPredictionResponse)
+def predict_default():
+    try:
+        defaults = load_default_features()
+
+        predictions = {}
+
+        for oil in ["dubai", "wti", "brent"]:
+            result = predict_with_bundle(
+                oil_type=oil,
+                model_type="default",
+                feature_values=defaults,
+            )
+
+            predictions[DISPLAY_OIL_NAMES[oil]] = result
+
+        return {
+            "horizon_trading_days": HORIZON_TRADING_DAYS,
+            "predictions": predictions,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/api/predict/simulation",
+    response_model=SimulationPredictionResponse,
+)
+def predict_simulation(request: SimulationRequest):
+    try:
+        oil = normalize_oil_type(request.oil_type)
+
+        defaults = load_default_features()
+        selected_features = request.selected_features or {}
+
+        feature_values = defaults.copy()
+        feature_values.update(selected_features)
+
+        model_type = route_model_type(selected_features)
+
+        result = predict_with_bundle(
+            oil_type=oil,
+            model_type=model_type,
+            feature_values=feature_values,
+        )
+
+        return {
+            **result,
+            "selected_features": selected_features,
+            "used_features": feature_values,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

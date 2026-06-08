@@ -504,8 +504,10 @@ def load_gdelt() -> pd.DataFrame:
         raise ValueError(f"GDELT 필수 컬럼이 없습니다: {missing}")
 
     result = df[required].copy()
+
     result["date"] = clean_date(result["date"])
-    result["country"] = result["country"].astype(str).apply(normalize_col_name)
+    result["country"] = result["country"].astype(str).str.strip()
+    result["region_group"] = result["country"].apply(map_region)
 
     count_cols = [
         "hormuz_risk_count",
@@ -517,60 +519,64 @@ def load_gdelt() -> pd.DataFrame:
         result[col] = pd.to_numeric(result[col], errors="coerce").fillna(0)
 
     before_rows = len(result)
-
     result = result.dropna(subset=["date"])
+    after_date_rows = len(result)
 
-    daily = result.groupby("date", as_index=False).agg(
-        gdelt_hormuz_risk_count=("hormuz_risk_count", "sum"),
-        gdelt_gulf_supply_disruption_count=("gulf_supply_disruption_count", "sum"),
-        gdelt_oil_infrastructure_attack_count=(
+    # 1. Global 집계
+    global_daily = result.groupby("date", as_index=False).agg(
+        gdelt_global_hormuz_risk_count=("hormuz_risk_count", "sum"),
+        gdelt_global_gulf_supply_disruption_count=(
+            "gulf_supply_disruption_count",
+            "sum",
+        ),
+        gdelt_global_oil_infrastructure_attack_count=(
             "oil_infrastructure_attack_count",
             "sum",
         ),
-        gdelt_avg_tone=("avg_gdelt_tone", "mean"),
+        gdelt_global_avg_tone=("avg_gdelt_tone", "mean"),
     )
 
-    pivot_count_parts = []
+    # 2. Region 집계
+    region_daily = result.groupby(["date", "region_group"], as_index=False).agg(
+        hormuz_risk_count=("hormuz_risk_count", "sum"),
+        gulf_supply_disruption_count=("gulf_supply_disruption_count", "sum"),
+        oil_infrastructure_attack_count=("oil_infrastructure_attack_count", "sum"),
+        avg_tone=("avg_gdelt_tone", "mean"),
+    )
 
-    for value_col in count_cols:
-        pivot = result.pivot_table(
-            index="date",
-            columns="country",
-            values=value_col,
-            aggfunc="sum",
-            fill_value=0,
-        )
-
-        pivot.columns = [f"gdelt_{country}_{value_col}" for country in pivot.columns]
-        pivot_count_parts.append(pivot)
-
-    country_count = pd.concat(pivot_count_parts, axis=1).reset_index()
-
-    tone_pivot = result.pivot_table(
+    region_pivot = region_daily.pivot_table(
         index="date",
-        columns="country",
-        values="avg_gdelt_tone",
-        aggfunc="mean",
+        columns="region_group",
+        values=[
+            "hormuz_risk_count",
+            "gulf_supply_disruption_count",
+            "oil_infrastructure_attack_count",
+            "avg_tone",
+        ],
+        aggfunc="sum",
         fill_value=0,
     )
 
-    tone_pivot.columns = [f"gdelt_{country}_avg_tone" for country in tone_pivot.columns]
-    tone_pivot = tone_pivot.reset_index()
+    region_pivot.columns = [
+        f"gdelt_{region}_{metric}" for metric, region in region_pivot.columns
+    ]
 
-    daily = daily.merge(country_count, on="date", how="left")
-    daily = daily.merge(tone_pivot, on="date", how="left")
+    region_wide = region_pivot.reset_index()
 
+    daily = global_daily.merge(region_wide, on="date", how="left")
     daily = daily.sort_values("date").reset_index(drop=True)
     daily = daily.replace([np.inf, -np.inf], np.nan)
     daily = daily.fillna(0)
 
-    print("\n[GDELT 정리 완료]")
+    print("\n[지역 통합 GDELT 정리 완료]")
     print("원본 행 수:", before_rows)
-    print("날짜 파싱 후 행 수:", len(result))
+    print("날짜 파싱 후 행 수:", after_date_rows)
     print("크기:", daily.shape)
     print("날짜 범위:", daily["date"].min(), "~", daily["date"].max())
     print(daily.head().to_string(index=False))
     print(daily.tail().to_string(index=False))
+    print("결측치:")
+    print(daily.isna().sum().sort_values(ascending=False).head(20))
 
     return daily
 
@@ -617,6 +623,7 @@ def add_gdelt_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 REGION_MAP = {
+    # Middle East / Gulf
     "Saudi Arabia": "MiddleEast",
     "United Arab Emirates": "MiddleEast",
     "UAE": "MiddleEast",
@@ -630,35 +637,44 @@ REGION_MAP = {
     "Lebanon": "MiddleEast",
     "Israel": "MiddleEast",
     "Palestine": "MiddleEast",
+    "Bahrain": "MiddleEast",
+    # Russia / Eurasia
+    "Russia": "Russia_Eurasia",
+    "Russian Federation": "Russia_Eurasia",
+    "Ukraine": "Russia_Eurasia",
+    "Kazakhstan": "Russia_Eurasia",
+    # North America
     "United States": "NorthAmerica",
     "Canada": "NorthAmerica",
     "Mexico": "NorthAmerica",
-    "Russia": "Russia",
-    "Russian Federation": "Russia",
+    # Latin America
+    "Brazil": "LatinAmerica",
+    "Venezuela": "LatinAmerica",
+    "Colombia": "LatinAmerica",
+    "Argentina": "LatinAmerica",
+    "Ecuador": "LatinAmerica",
+    "Chile": "LatinAmerica",
+    "Peru": "LatinAmerica",
+    "Bolivia": "LatinAmerica",
+    "Paraguay": "LatinAmerica",
+    "Uruguay": "LatinAmerica",
+    # Europe
+    "Norway": "Europe",
+    "United Kingdom": "Europe",
+    "Germany": "Europe",
+    "France": "Europe",
+    "Italy": "Europe",
+    "Netherlands": "Europe",
+    "Spain": "Europe",
+    "Poland": "Europe",
 }
 
 
 def map_region(country: str) -> str:
-    country = str(country)
+    country = str(country).strip()
 
     if country in REGION_MAP:
         return REGION_MAP[country]
-
-    latin_keywords = [
-        "Brazil",
-        "Argentina",
-        "Venezuela",
-        "Colombia",
-        "Chile",
-        "Peru",
-        "Ecuador",
-        "Bolivia",
-        "Paraguay",
-        "Uruguay",
-    ]
-
-    if any(keyword in country for keyword in latin_keywords):
-        return "LatinAmerica"
 
     return "Other"
 
@@ -707,49 +723,74 @@ def build_conflict_daily_features(conflict_df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["date"])
 
-    grouped_count = (
-        df.groupby(["date", "region_group", "event_type_clean"])
-        .size()
-        .reset_index(name="count")
+    # region_group / event_type_clean이 없을 수도 있으므로 안전 처리
+    if "region_group" not in df.columns:
+        df["region_group"] = df["country"].apply(map_region)
+
+    if "event_type_clean" not in df.columns:
+        df["event_type_clean"] = df["event_type"].apply(normalize_col_name)
+
+    df["fatalities"] = pd.to_numeric(df["fatalities"], errors="coerce").fillna(0)
+
+    # 주요 이벤트 타입 flag
+    df["is_battles"] = (df["event_type_clean"] == "Battles").astype(int)
+    df["is_explosions"] = (
+        df["event_type_clean"] == "Explosions_Remote_violence"
+    ).astype(int)
+    df["is_violence_civilians"] = (
+        df["event_type_clean"] == "Violence_against_civilians"
+    ).astype(int)
+    df["is_protests"] = (df["event_type_clean"] == "Protests").astype(int)
+    df["is_riots"] = (df["event_type_clean"] == "Riots").astype(int)
+
+    # 1. 지역별 일별 집계
+    region_daily = (
+        df.groupby(["date", "region_group"])
+        .agg(
+            conflict_events=("event_type_clean", "size"),
+            conflict_fatalities=("fatalities", "sum"),
+            battles_count=("is_battles", "sum"),
+            explosions_count=("is_explosions", "sum"),
+            violence_civilians_count=("is_violence_civilians", "sum"),
+            protests_count=("is_protests", "sum"),
+            riots_count=("is_riots", "sum"),
+        )
+        .reset_index()
     )
 
-    grouped_fatalities = (
-        df.groupby(["date", "region_group", "event_type_clean"])["fatalities"]
-        .sum()
-        .reset_index(name="fatalities")
-    )
-
-    count_pivot = grouped_count.pivot_table(
+    region_pivot = region_daily.pivot_table(
         index="date",
-        columns=["region_group", "event_type_clean"],
-        values="count",
+        columns="region_group",
+        values=[
+            "conflict_events",
+            "conflict_fatalities",
+            "battles_count",
+            "explosions_count",
+            "violence_civilians_count",
+            "protests_count",
+            "riots_count",
+        ],
         aggfunc="sum",
         fill_value=0,
     )
 
-    count_pivot.columns = [
-        f"{region}_{event}_count" for region, event in count_pivot.columns
+    region_pivot.columns = [
+        f"{region}_{metric}" for metric, region in region_pivot.columns
     ]
 
-    fatal_pivot = grouped_fatalities.pivot_table(
-        index="date",
-        columns=["region_group", "event_type_clean"],
-        values="fatalities",
-        aggfunc="sum",
-        fill_value=0,
-    )
+    daily = region_pivot.reset_index()
 
-    fatal_pivot.columns = [
-        f"{region}_{event}_fatalities" for region, event in fatal_pivot.columns
-    ]
-
-    daily = pd.concat([count_pivot, fatal_pivot], axis=1).reset_index()
-
+    # 2. Global 일별 집계
     global_daily = (
         df.groupby("date")
         .agg(
-            global_total_events=("event_type", "size"),
-            global_total_fatalities=("fatalities", "sum"),
+            Global_conflict_events=("event_type_clean", "size"),
+            Global_conflict_fatalities=("fatalities", "sum"),
+            Global_battles_count=("is_battles", "sum"),
+            Global_explosions_count=("is_explosions", "sum"),
+            Global_violence_civilians_count=("is_violence_civilians", "sum"),
+            Global_protests_count=("is_protests", "sum"),
+            Global_riots_count=("is_riots", "sum"),
         )
         .reset_index()
     )
@@ -757,7 +798,9 @@ def build_conflict_daily_features(conflict_df: pd.DataFrame) -> pd.DataFrame:
     daily = daily.merge(global_daily, on="date", how="left")
     daily = daily.sort_values("date").reset_index(drop=True)
 
+    # 3. Rolling / diff feature 생성
     base_cols = [col for col in daily.columns if col != "date"]
+
     new_features = {}
 
     for col in base_cols:
@@ -765,14 +808,18 @@ def build_conflict_daily_features(conflict_df: pd.DataFrame) -> pd.DataFrame:
             new_features[f"{col}_rolling_{window}_sum"] = (
                 daily[col].rolling(window).sum()
             )
+            new_features[f"{col}_diff{window}"] = daily[col] - daily[col].shift(window)
 
     feature_df = pd.DataFrame(new_features, index=daily.index)
+
     daily = pd.concat([daily, feature_df], axis=1)
+    daily = daily.replace([np.inf, -np.inf], np.nan)
     daily = daily.fillna(0)
 
-    print("\n[ACLED daily feature 생성 완료]")
+    print("\n[지역 통합 ACLED daily feature 생성 완료]")
     print("크기:", daily.shape)
     print("날짜 범위:", daily["date"].min(), "~", daily["date"].max())
+    print("feature 일부:", daily.columns[:30].tolist())
 
     return daily
 
@@ -902,7 +949,7 @@ def merge_asof_feature(
     new_cols = [col for col in feat.columns if col != "date"]
 
     if new_cols:
-        merged[new_cols] = merged[new_cols].ffill()
+        merged[new_cols] = merged[new_cols].ffill().fillna(0)
 
     print(f"[병합 완료] {name}: +{len(new_cols)} cols -> {merged.shape}")
 
@@ -945,6 +992,22 @@ def build_all_oil_dataset() -> pd.DataFrame:
 
     df = df.sort_values("date").reset_index(drop=True)
     df = df.replace([np.inf, -np.inf], np.nan)
+
+    conflict_gdelt_cols = [
+        col
+        for col in df.columns
+        if col.startswith("MiddleEast_")
+        or col.startswith("Russia_Eurasia_")
+        or col.startswith("NorthAmerica_")
+        or col.startswith("LatinAmerica_")
+        or col.startswith("Europe_")
+        or col.startswith("Other_")
+        or col.startswith("Global_")
+        or col.startswith("gdelt_")
+    ]
+
+    if conflict_gdelt_cols:
+        df[conflict_gdelt_cols] = df[conflict_gdelt_cols].fillna(0)
 
     df.to_csv(ALL_OIL_DATASET_PATH, index=False, encoding="utf-8-sig")
 

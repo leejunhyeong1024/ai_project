@@ -112,6 +112,17 @@ PRIMARY_MODEL_NAME = "random_forest"
 
 FEATURE_SCORE_PATH = EXPERIMENT_DIR / "feature_scores.csv"
 SELECTED_FEATURES_PATH = EXPERIMENT_DIR / "selected_features.json"
+SELECTED_FEATURES_PATHS = {
+    "dubai": EXPERIMENT_DIR / "selected_features_dubai.json",
+    "wti": EXPERIMENT_DIR / "selected_features_wti.json",
+    "brent": EXPERIMENT_DIR / "selected_features_brent.json",
+}
+
+FEATURE_SCORE_PATHS = {
+    "dubai": EXPERIMENT_DIR / "feature_scores_dubai.csv",
+    "wti": EXPERIMENT_DIR / "feature_scores_wti.csv",
+    "brent": EXPERIMENT_DIR / "feature_scores_brent.csv",
+}
 TRAIN_RESULTS_PATH = EXPERIMENT_DIR / "train_results.csv"
 TRAIN_RESULTS_JSON_PATH = EXPERIMENT_DIR / "train_results.json"
 
