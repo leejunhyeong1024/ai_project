@@ -1,0 +1,37 @@
+name: Daily Data Auto Updater
+
+on:
+  schedule:
+    - cron: '5 15 * * *' # 매일 한국 시간 00시 05분 자동 실행
+  workflow_dispatch:
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 가져오기
+        uses: actions/checkout@v3
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 필요한 라이브러리 설치
+        run: |
+          pip install yfinance pandas requests
+
+      - name: 데이터 업데이트 파이썬 스크립트 실행
+        run: python daily_updater.py
+
+      - name: 깃허브에 자동 Commit 및 Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # ★ 추적 대상을 최신 가중치 파일명으로 변경 완료
+          git add data/prediction/latest_feature_defaults.json
+          
+          git commit -m "🤖 [자동화] latest_feature_defaults 파일 갱신 완료" || echo "변경된 데이터가 없습니다."
+          git push origin main

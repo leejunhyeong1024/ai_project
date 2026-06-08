@@ -25,16 +25,13 @@ FINAL_MODEL_DIR = MODEL_OUTPUT_DIR / "final"
 
 OIL_PRICE_PATH = RAW_DIR / "oil_price_daily.csv"
 CONFLICT_PATH = RAW_DIR / "conflict_events_daily.csv"
-GPR_PATH = RAW_DIR / "gpr_daily.xls"
+GPR_PATH = RAW_DIR / "gpr_daily.csv"
 
 DXY_PATH = RAW_DIR / "dxy_daily.csv"
 VIX_PATH = RAW_DIR / "vix_daily.csv"
 US10Y_PATH = RAW_DIR / "us10y_daily.csv"
 CRUDE_INVENTORY_PATH = RAW_DIR / "us_crude_inventory_daily.csv"
 GDELT_PATH = RAW_DIR / "gdelt_daily.csv"
-
-# 새로 추가한 학습 데이터 경로
-NEW_RISK_DATA_PATH = RAW_DIR / "bquxjob_167d00bd_19e8c6752c0.csv"
 
 
 # ==============================
@@ -115,6 +112,17 @@ PRIMARY_MODEL_NAME = "random_forest"
 
 FEATURE_SCORE_PATH = EXPERIMENT_DIR / "feature_scores.csv"
 SELECTED_FEATURES_PATH = EXPERIMENT_DIR / "selected_features.json"
+SELECTED_FEATURES_PATHS = {
+    "dubai": EXPERIMENT_DIR / "selected_features_dubai.json",
+    "wti": EXPERIMENT_DIR / "selected_features_wti.json",
+    "brent": EXPERIMENT_DIR / "selected_features_brent.json",
+}
+
+FEATURE_SCORE_PATHS = {
+    "dubai": EXPERIMENT_DIR / "feature_scores_dubai.csv",
+    "wti": EXPERIMENT_DIR / "feature_scores_wti.csv",
+    "brent": EXPERIMENT_DIR / "feature_scores_brent.csv",
+}
 TRAIN_RESULTS_PATH = EXPERIMENT_DIR / "train_results.csv"
 TRAIN_RESULTS_JSON_PATH = EXPERIMENT_DIR / "train_results.json"
 

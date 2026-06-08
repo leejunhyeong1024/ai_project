@@ -1,0 +1,74 @@
+{
+    "dubai_default_model.pkl": {
+        "source_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/experiments/final_candidates/dubai_default_price_momentum_gpr_selected_extra_10_xgboost.pkl",
+        "target_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/final/dubai_default_model.pkl",
+        "oil_type": "dubai",
+        "model_mode": "default",
+        "feature_set": "price_momentum_gpr_selected_extra_10",
+        "model_name": "xgboost",
+        "target_type": "return_pct",
+        "target_horizon": "10_trading_days",
+        "train_cutoff": "2024-12-31",
+        "feature_count": 116
+    },
+    "dubai_shock_aware_model.pkl": {
+        "source_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/experiments/final_candidates/dubai_shock_aware_price_momentum_gpr_extra_trees.pkl",
+        "target_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/final/dubai_shock_aware_model.pkl",
+        "oil_type": "dubai",
+        "model_mode": "shock_aware",
+        "feature_set": "price_momentum_gpr",
+        "model_name": "extra_trees",
+        "target_type": "return_pct",
+        "target_horizon": "10_trading_days",
+        "train_cutoff": "2026-03-31",
+        "feature_count": 106
+    },
+    "wti_default_model.pkl": {
+        "source_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/experiments/final_candidates/wti_default_price_momentum_gpr_region_conflict_gdelt_random_forest.pkl",
+        "target_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/final/wti_default_model.pkl",
+        "oil_type": "wti",
+        "model_mode": "default",
+        "feature_set": "price_momentum_gpr_region_conflict_gdelt",
+        "model_name": "random_forest",
+        "target_type": "return_pct",
+        "target_horizon": "10_trading_days",
+        "train_cutoff": "2024-12-31",
+        "feature_count": 604
+    },
+    "wti_shock_aware_model.pkl": {
+        "source_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/experiments/final_candidates/wti_shock_aware_price_momentum_gpr_region_conflict_extra_trees.pkl",
+        "target_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/final/wti_shock_aware_model.pkl",
+        "oil_type": "wti",
+        "model_mode": "shock_aware",
+        "feature_set": "price_momentum_gpr_region_conflict",
+        "model_name": "extra_trees",
+        "target_type": "return_pct",
+        "target_horizon": "10_trading_days",
+        "train_cutoff": "2026-03-31",
+        "feature_count": 400
+    },
+    "brent_default_model.pkl": {
+        "source_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/experiments/final_candidates/brent_default_price_momentum_gpr_selected_extra_10_xgboost_shallow.pkl",
+        "target_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/final/brent_default_model.pkl",
+        "oil_type": "brent",
+        "model_mode": "default",
+        "feature_set": "price_momentum_gpr_selected_extra_10",
+        "model_name": "xgboost_shallow",
+        "target_type": "return_pct",
+        "target_horizon": "10_trading_days",
+        "train_cutoff": "2024-12-31",
+        "feature_count": 116
+    },
+    "brent_shock_aware_model.pkl": {
+        "source_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/experiments/final_candidates/brent_shock_aware_price_momentum_gpr_selected_extra_20_xgboost.pkl",
+        "target_path": "/Users/doyeong/VScode_workspace/ai_project/back/models/final/brent_shock_aware_model.pkl",
+        "oil_type": "brent",
+        "model_mode": "shock_aware",
+        "feature_set": "price_momentum_gpr_selected_extra_20",
+        "model_name": "xgboost",
+        "target_type": "return_pct",
+        "target_horizon": "10_trading_days",
+        "train_cutoff": "2026-03-31",
+        "feature_count": 126
+    }
+}

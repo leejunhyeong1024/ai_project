@@ -3,16 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 유가 예측 대시보드 — OilCast</title>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
+    <title>AI 유가 예측 시뮬레이터</title>
     <link rel="stylesheet" href="style.css">
-    
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    
     <script src="app.js" defer></script>
 </head>
 <body>
@@ -21,182 +14,75 @@
   <div class="topbar-inner">
     <div class="brand">
       <div class="brand-icon">🛢️</div>
-      <div>
-        <div class="brand-name">Oil<span>Cast</span> <sup class="brand-sub">AI</sup></div>
-      </div>
+      <div class="brand-name">Oil<span>Cast</span> <sup class="brand-sub">AI Lab</sup></div>
     </div>
     <div class="topbar-meta">
-      <div class="meta-item">
-        <div class="live-dot"></div>
-        <strong>실시간 데이터</strong>
-      </div>
-      <div class="meta-item">기준: <strong id="updateTime">6월 8일 오후 04:45</strong></div>
-      <div class="meta-item">WTI 기준가: <strong>$82.40</strong></div>
-      <span class="model-tag">XGBClassifier + Ridge Hybrid</span>
+      <div class="meta-item"><div class="live-dot"></div><strong>FastAPI 서버 연동됨</strong></div>
+      <span class="model-tag">🟢 MODE: NORMAL (RF)</span>
     </div>
   </div>
 </header>
 
 <div class="page">
-
   <div class="page-title-row">
     <div class="page-title">
-      AI 기반 중동 분쟁 및 국제 유가 예측 대시보드
-      <span>WTI 원유 / 1주 후 가격 예측 · 중동 분쟁 지수 · 달러 인덱스 · What-If 시뮬레이터</span>
-    </div>
-    <button class="refresh-btn" onclick="runUpdate()">↻ 모델 재실행</button>
-  </div>
-
-  <div class="kpi-row">
-    <div class="kpi-card">
-      <div class="kpi-label"><span class="kpi-dot" style="background:#1A56DB"></span>WTI 현재가</div>
-      <div class="kpi-val">$82.40</div>
-      <div class="kpi-sub"><span class="tag tag-up">▲ +1.23</span>(+1.5%) 전일 대비</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label"><span class="kpi-dot" style="background:#7C3AED"></span>달러 인덱스 (DXY)</div>
-      <div class="kpi-val" id="kpiDxy">104.2</div>
-      <div class="kpi-sub"><span class="tag tag-dn">▼ −0.38</span>(−0.4%)</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label"><span class="kpi-dot" style="background:#E53E3E"></span>중동 분쟁 종합 지수</div>
-      <div class="kpi-val" id="kpiConflict">67.4</div>
-      <div class="kpi-sub"><span class="tag tag-up">▲ +5.2p</span>주간 상승</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label"><span class="kpi-dot" style="background:#059669"></span>모델 예측 신뢰도</div>
-      <div class="kpi-val">84.7<span style="font-size:1rem; color:var(--text-muted); font-weight:400">%</span></div>
-      <div class="kpi-sub">방향 적중률 = 56% · MAE = $5.17</div>
+      인공지능시스템 통합 테스트 벤치
+      <span>FastAPI 분석 엔진과 실시간 통신하여 10거래일 뒤 예측치를 도출합니다.</span>
     </div>
   </div>
 
   <div class="predict-hero">
     <div class="predict-main">
-      <div class="predict-eyebrow">1주 후 WTI 유가 예측</div>
-      <div class="predict-number up" id="predictNumber">$87.07</div>
+      <div class="predict-eyebrow">10거래일 뒤 최종 예측가</div>
+      <div class="predict-number up" id="predictNumber">$94.58</div>
       <div class="predict-delta up" id="predictDelta">
         <span class="delta-arrow">▲</span>
-        <span id="deltaText">+$4.67 (+5.67%)</span>
+        <span id="deltaText">+$0.00 (0.00%)</span>
       </div>
-      <div class="predict-range-label">95% 신뢰 구간</div>
-      <div class="predict-range-val" id="predictRange">$83.47 – $90.67</div>
+      <div class="predict-range-label">95% AI 신뢰 구간</div>
+      <div class="predict-range-val" id="predictRange">$92.08 – $97.08</div>
     </div>
 
     <div class="predict-meta">
-      <div class="predict-meta-title">요인별 유가 기여도</div>
+      <div class="predict-meta-title">변수별 예측 기여도 (Shapley 가치 변형)</div>
       <div class="factor-rows" id="factorRows">
         </div>
     </div>
-
-    <div class="predict-reasoning">
-      <div class="reasoning-title">📋 AI 분석 요약</div>
-      <div class="reasoning-text" id="reasoningText">
-        </div>
-    </div>
   </div>
 
   <div class="grid2">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon" style="background:#FFF7ED">⚡</div>실험 변수 제어판</div>
+      <div class="card-sub">원유 타겟 및 데이터 세트 대분류 조합을 선택하세요.</div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+        <div>
+          <label style="display:block; font-size:0.75rem; font-weight:600; margin-bottom:4px; color:#64748b;">🎯 예측 대상 유가</label>
+          <select id="targetOilSelect" onchange="onTargetOilChange()" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:0.85rem; cursor:pointer;">
+            <option value="WTI" selected>WTI (서부 텍사스산 원유)</option>
+            <option value="Brent">Brent (북해산 브렌트유)</option>
+            <option value="Dubai">Dubai (중동산 두바이유)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block; font-size:0.75rem; font-weight:600; margin-bottom:4px; color:#64748b;">🧪 분석 피처 조합 세트</label>
+          <select id="featureSetSelect" onchange="updatePrediction()" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:0.85rem; cursor:pointer;">
+            </select>
+        </div>
+      </div>
+
+      <div class="simulator-grid" id="simulatorGrid"></div>
+    </div>
 
     <div class="card">
-      <div class="card-title">
-        <div class="card-title-icon" style="background:#EBF2FF">📈</div>
-        일별 가격 예측 경로
-      </div>
-      <div class="card-sub">현재 ~ 7일 후 WTI 가격 시나리오 (USD/bbl)</div>
-      <div class="chart-legend">
-        <span class="legend-item"><span class="legend-line" style="background:#1A56DB"></span>기본 예측</span>
-        <span class="legend-item"><span class="legend-line" style="background:#E53E3E; opacity:0.6"></span>상단 시나리오</span>
-        <span class="legend-item"><span class="legend-line" style="background:#059669; opacity:0.6"></span>하단 시나리오</span>
-      </div>
-      <div class="chart-wrap">
+      <div class="card-title"><div class="card-title-icon" style="background:#EBF2FF">📈</div>10거래일 시뮬레이션 트렌드 경로</div>
+      <div class="card-sub">현재가 기준 예측 타겟일까지의 선형 트렌드 시각화</div>
+      <div class="chart-wrap" style="height: 340px; margin-top: 1rem;">
         <canvas id="forecastChart"></canvas>
       </div>
     </div>
-
-    <div class="card">
-      <div class="card-title">
-        <div class="card-title-icon" style="background:#F3F0FF">🔍</div>
-        Feature Importance — 변수 중요도
-      </div>
-      <div class="card-sub">하이브리드 파이프라인 기준 · 각 변수가 예측에 기여하는 비중 (읽기 전용)</div>
-      <div class="feat-table" id="featTable">
-        </div>
-    </div>
   </div>
-
-  <div class="grid2">
-
-    <div class="card">
-      <div class="card-title">
-        <div class="card-title-icon" style="background:#FFF7ED">⚡</div>
-        What-If 시나리오 시뮬레이터
-      </div>
-      <div class="card-sub">입력 데이터를 조정해 "이 상황이 생기면 유가가 어떻게 될까?"를 시뮬레이션</div>
-
-      <div class="scenario-btns" id="scenarioBtns">
-        <button class="scenario-btn active" onclick="applyScenario('base')">📊 기본값</button>
-        <button class="scenario-btn" onclick="applyScenario('crisis')">🔥 중동 위기 심화</button>
-        <button class="scenario-btn" onclick="applyScenario('peace')">🕊️ 정전 협정</button>
-        <button class="scenario-btn" onclick="applyScenario('usd')">💵 달러 급등</button>
-        <button class="scenario-btn" onclick="applyScenario('opec')">🛢️ OPEC 감산</button>
-      </div>
-
-      <div class="simulator-grid" id="simulatorGrid">
-        </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">
-        <div class="card-title-icon" style="background:#FFF1F1">🌍</div>
-        중동 지역별 분쟁 현황
-      </div>
-      <div class="card-sub">지역별 분쟁 강도 지수 (0 = 평화 / 100 = 전면전)</div>
-      <div class="conflict-list" id="conflictList">
-        </div>
-    </div>
-  </div>
-
-  <div class="grid2">
-
-    <div class="card">
-      <div class="card-title">
-        <div class="card-title-icon" style="background:#F0FFF4">📉</div>
-        유가 × 분쟁 지수 — 과거 상관관계
-      </div>
-      <div class="card-sub">최근 12주 WTI 주간 종가 vs 분쟁 지수</div>
-      <div class="chart-wrap">
-        <canvas id="historicalChart"></canvas>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">
-        <div class="card-title-icon" style="background:#F0F9FF">🤖</div>
-        예측 모델 정보
-      </div>
-      <div class="card-sub">하이브리드 파이프라인 구조 및 예측 로직 (참고용)</div>
-      <div class="model-badge-row">
-        <span class="mbadge">XGBClassifier (Gatekeeper)</span>
-        <span class="mbadge">RandomForest (Normal Mode)</span>
-        <span class="mbadge">Ridge Regressor (Shock Mode)</span>
-      </div>
-      <div class="formula-box">
-        <code>Gatekeeper(X)</code> -> if 0: <code>RF_Regressor(X)</code> else 1: <code>Ridge_Regressor(X)</code><br>
-        <code>X</code> = [DXY, 분쟁지수, OPEC생산량, EIA재고, 교전건수, ...]<br>
-        <code>Loss_Function</code> = Mean Absolute Error (MAE)
-      </div>
-      <div class="divider"></div>
-      <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.8;">
-        <strong style="color:var(--text-secondary)">학습 데이터:</strong> EIA, Bloomberg, ACLED 분쟁 데이터베이스<br>
-        <strong style="color:var(--text-secondary)">업데이트 주기:</strong> 매주 월요일 00:00 UTC 재학습<br>
-        <strong style="color:var(--text-secondary)">면책 고지:</strong> 본 예측은 연구 목적이며 투자 조언이 아닙니다.
-      </div>
-    </div>
-  </div>
-
-</div><footer class="footer">
-  OilCast AI Dashboard · 데이터 출처: EIA, Bloomberg Terminal, ACLED, FRED (DXY) · © 2026 Research Only
-</footer>
+</div>
 
 </body>
 </html>

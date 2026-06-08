@@ -670,3 +670,24 @@ body {
   color: var(--text-muted);
   border-top: 1px solid var(--border);
 }
+
+.predict-main {
+    transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+/* 1번 UX: 서버가 연산중(디바운싱 대기포함)일 때 살짝 흐려지며 로딩 상태를 암시 */
+.predict-main.loading-state {
+    opacity: 0.6;
+    filter: blur(1.5px);
+    pointer-events: none; /* 로딩 중 중복 클릭 방지 */
+}
+
+/* 유가 상승/하락 컬러 변수 스타일 고도화 */
+.predict-number.up { color: #D42B2B !important; }
+.predict-number.dn { color: #1A56DB !important; }
+.predict-delta.up { color: #D42B2B !important; }
+.predict-delta.dn { color: #1A56DB !important; }
+.factor-bar.up { background: #E53E3E !important; }
+.factor-bar.dn { background: #1A56DB !important; }
+.factor-score.up { color: #E53E3E !important; }
+.factor-score.dn { color: #1A56DB !important; }

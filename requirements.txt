@@ -1,0 +1,20 @@
+# Server
+fastapi
+uvicorn
+
+# Data processing
+numpy
+pandas
+openpyxl
+xlrd
+
+# Machine learning
+scikit-learn
+xgboost
+joblib
+
+# Deep learning / optional experiments
+torch
+
+# Validation
+pydantic
