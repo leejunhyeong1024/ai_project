@@ -38,7 +38,7 @@ MODEL_MODES = {
     "default": {
         "train_cutoff": "2024-12-31",
         "test_start": "2025-01-01",
-        "test_end": None,
+        "test_end": "2025-12-31",
         "selection_metric": "price_mae",
     },
     "shock_aware": {
@@ -256,6 +256,41 @@ def make_models() -> dict:
                         epsilon=1.35,
                         alpha=0.001,
                         max_iter=2000,
+                    ),
+                ),
+            ]
+        ),
+        "extra_trees_shallow": Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),
+                (
+                    "model",
+                    ExtraTreesRegressor(
+                        n_estimators=500,
+                        max_depth=8,
+                        min_samples_leaf=5,
+                        random_state=42,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        ),
+        "xgboost_shallow": Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),
+                (
+                    "model",
+                    XGBRegressor(
+                        n_estimators=500,
+                        max_depth=2,
+                        learning_rate=0.02,
+                        subsample=0.8,
+                        colsample_bytree=0.8,
+                        reg_lambda=10.0,
+                        reg_alpha=1.0,
+                        objective="reg:squarederror",
+                        random_state=42,
+                        n_jobs=-1,
                     ),
                 ),
             ]
