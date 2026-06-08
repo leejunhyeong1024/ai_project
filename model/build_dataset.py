@@ -25,6 +25,7 @@ from config import (
     TARGET_DATE_COL,
     US10Y_PATH,
     VIX_PATH,
+    NEW_RISK_DATA_PATH,  # config.py에서 추가한 경로
     ensure_directories,
 )
 
@@ -148,7 +149,6 @@ def load_oil_price() -> pd.DataFrame:
 # ==============================
 # GPR & Market & GDELT & ACLED
 # ==============================
-# (나머지 로더 함수들은 충돌 마커 걷어내고 ffill 유지)
 
 def load_gpr() -> pd.DataFrame:
     check_file(GPR_PATH, "GPR")
@@ -260,6 +260,41 @@ def build_conflict_daily_features(conflict_df: pd.DataFrame) -> pd.DataFrame:
     grouped_fatalities = conflict_df.groupby(["date"])["fatalities"].sum().reset_index()
     return grouped_fatalities.sort_values("date").reset_index(drop=True)
 
+# ========================================================
+# [핵심 추가] 신규 리스크 데이터셋 (bquxjob_...) 로드
+# ========================================================
+def load_new_risk_data() -> pd.DataFrame:
+    if not NEW_RISK_DATA_PATH.exists():
+        print(f"[-] Warning: 신규 리스크 파일이 없습니다 -> {NEW_RISK_DATA_PATH}")
+        return pd.DataFrame(columns=["date"])
+    
+    df = read_csv_auto(NEW_RISK_DATA_PATH)
+    date_col = "date" if "date" in df.columns else find_date_col(df)
+    df = df.rename(columns={date_col: "date"})
+    df["date"] = clean_date(df["date"])
+    
+    # [여기부터 삽입]
+    # 1. 합계 집계
+    agg_df = df.groupby("date", as_index=False).agg({
+        "hormuz_risk_count": "sum",
+        "gulf_supply_disruption_count": "sum",
+        "oil_infrastructure_attack_count": "sum",
+        "avg_gdelt_tone": "mean"
+    })
+    
+    # 2. 이진 플래그 피처 추가 (사건 발생 여부)
+    agg_df["is_hormuz_risk"] = (agg_df["hormuz_risk_count"] > 0).astype(int)
+    agg_df["is_gulf_risk"] = (agg_df["gulf_supply_disruption_count"] > 0).astype(int)
+    agg_df["is_attack_risk"] = (agg_df["oil_infrastructure_attack_count"] > 0).astype(int)
+    agg_df["risk_intensity"] = agg_df["hormuz_risk_count"] * (10 - agg_df["avg_gdelt_tone"].clip(-10, 10))
+    # 리스크 발생 건수의 5일 이동평균 (리스크가 지속되는지 판단)
+    agg_df["risk_intensity_roll5"] = agg_df["risk_intensity"].rolling(window=5).mean().fillna(0)
+    # 전일 대비 리스크 변화량 (리스크가 급증하는지 판단)
+    agg_df["risk_change_diff"] = agg_df["risk_intensity"].diff().fillna(0)
+    
+    return agg_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+# ========================================================
+
 def add_spread_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if not all(c in df.columns for c in ["current_Dubai", "current_Brent", "current_WTI"]): return df
@@ -297,11 +332,20 @@ def build_all_oil_dataset() -> pd.DataFrame:
     df = merge_asof_feature(df, load_gdelt(), "GDELT")
     df = merge_asof_feature(df, build_conflict_daily_features(load_conflict()), "ACLED")
     
+    # [추가] 신규 리스크 데이터 병합
+    df = merge_asof_feature(df, load_new_risk_data(), "NEW_RISK")
+    
     df = add_gpr_features(df)
     df = add_market_features(df)
     df = add_gdelt_features(df)
     df = add_spread_features(df)
     df = add_price_features(df)
+    
+    # 매칭되지 않은 신규 데이터 결측치 보정(0 처리)
+    fill_cols = ["hormuz_risk_count", "gulf_supply_disruption_count", "oil_infrastructure_attack_count", "avg_gdelt_tone"]
+    fill_cols = [c for c in fill_cols if c in df.columns]
+    if fill_cols:
+        df[fill_cols] = df[fill_cols].fillna(0)
     
     df = df.sort_values("date").reset_index(drop=True)
     df.to_csv(ALL_OIL_DATASET_PATH, index=False, encoding="utf-8-sig")
@@ -321,7 +365,7 @@ def make_oil_dataset(all_df: pd.DataFrame, oil_type: str) -> pd.DataFrame:
 
     # [핵심 수정 2] 쇼크 장세 기준 변경
     # 기존 20달러(약 20~25%) 대신, 10거래일 기준 15% 이상 폭등/폭락을 쇼크로 정의
-    df['target_shock'] = (df[TARGET_COL].abs() >= 15.0).astype(int)
+    df['target_shock'] = (df[TARGET_COL].abs().rolling(window=5, min_periods=1).max().shift(-5) >= 15.0).astype(int)
 
     df = df.dropna(subset=[current_col, future_col, TARGET_COL, TARGET_DATE_COL]).copy()
     cross_price_cols = ["current_Dubai", "current_Brent", "current_WTI"]

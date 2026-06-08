@@ -33,8 +33,17 @@ def zscore(series: pd.Series) -> pd.Series:
 
 def remove_leak_features(features: list[str]) -> list[str]:
     leak_keywords = ["future_", "target", "target_date", "answer_", "actual_", "predicted_", "error"]
+    
+    # [주석 처리 가이드] 
+    # GDELT 데이터를 학습에서 제외하고 싶으면 아래 gdelt_keywords 리스트와 
+    # if 문을 주석 처리(#)하면 됩니다.
+    gdelt_keywords = ["hormuz_risk", "gulf_supply", "oil_infrastructure", "avg_gdelt_tone"]
+    
     result = []
     for col in features:
+        # GDELT 제외 로직 (주석 처리로 컨트롤 가능)
+        # if any(keyword in col for keyword in gdelt_keywords): continue 
+        
         if any(keyword in col for keyword in leak_keywords) or col == "date": continue
         result.append(col)
     return result
@@ -55,7 +64,14 @@ def get_base_features(df: pd.DataFrame, oil_type: str) -> list[str]:
 
 def get_extra_candidate_features(df: pd.DataFrame, oil_type: str) -> list[str]:
     base = set(get_base_features(df, oil_type))
-    cands = [col for col in df.columns if col not in base and any(col.startswith(p) for p in ["DXY", "VIX", "US10Y", "crude", "gdelt_", "ACLED", "current_"])]
+    
+    # [핵심 수정] 새롭게 추가한 리스크 데이터의 컬럼명 시작 부분을 후보군에 추가시킴
+    allowed_prefixes = [
+        "DXY", "VIX", "US10Y", "crude", "gdelt_", "ACLED", "current_",
+        "hormuz", "gulf", "oil_infrastructure", "avg_gdelt"
+    ]
+    
+    cands = [col for col in df.columns if col not in base and any(col.startswith(p) for p in allowed_prefixes)]
     return numeric_existing_features(df, cands)
 
 def prepare_xy(df: pd.DataFrame, features: list[str]):

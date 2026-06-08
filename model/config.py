@@ -33,6 +33,9 @@ US10Y_PATH = RAW_DIR / "us10y_daily.csv"
 CRUDE_INVENTORY_PATH = RAW_DIR / "us_crude_inventory_daily.csv"
 GDELT_PATH = RAW_DIR / "gdelt_daily.csv"
 
+# 새로 추가한 학습 데이터 경로
+NEW_RISK_DATA_PATH = RAW_DIR / "bquxjob_167d00bd_19e8c6752c0.csv"
+
 
 # ==============================
 # Processed data paths
