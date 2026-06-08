@@ -25,7 +25,7 @@ FINAL_MODEL_DIR = MODEL_OUTPUT_DIR / "final"
 
 OIL_PRICE_PATH = RAW_DIR / "oil_price_daily.csv"
 CONFLICT_PATH = RAW_DIR / "conflict_events_daily.csv"
-GPR_PATH = RAW_DIR / "gpr_daily.xls"
+GPR_PATH = RAW_DIR / "gpr_daily.csv"
 
 DXY_PATH = RAW_DIR / "dxy_daily.csv"
 VIX_PATH = RAW_DIR / "vix_daily.csv"
