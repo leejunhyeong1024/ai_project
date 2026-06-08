@@ -2,11 +2,19 @@
 fastapi
 uvicorn
 
+# Validation
+pydantic
+
 # Data processing
 numpy
 pandas
 openpyxl
 xlrd
+
+# API / environment
+requests
+yfinance
+python-dotenv
 
 # Machine learning
 scikit-learn
@@ -15,6 +23,3 @@ joblib
 
 # Deep learning / optional experiments
 torch
-
-# Validation
-pydantic

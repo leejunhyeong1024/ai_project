@@ -6,10 +6,17 @@ import pickle
 from pathlib import Path
 from typing import Any
 
-try:
-    from back.server.config import FINAL_MODEL_DIR
-except ImportError:
-    from config import FINAL_MODEL_DIR
+# =========================
+# Path settings
+# =========================
+# file path:
+# ai_project/back/server/model_loader.py
+#
+# parents[0] = server
+# parents[1] = back
+# parents[2] = ai_project
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FINAL_MODEL_DIR = PROJECT_ROOT / "back" / "models" / "final"
 
 
 OIL_TYPES = ["dubai", "wti", "brent"]
@@ -101,12 +108,6 @@ def get_model_bundle(
 
     if model_type not in MODEL_TYPES:
         raise ValueError(f"지원하지 않는 model_type입니다: {model_type}")
-
-    if oil not in models:
-        raise ValueError(f"로드된 모델에 없는 oil_type입니다: {oil}")
-
-    if model_type not in models[oil]:
-        raise ValueError(f"{oil}에 {model_type} 모델이 없습니다.")
 
     return models[oil][model_type]
 
