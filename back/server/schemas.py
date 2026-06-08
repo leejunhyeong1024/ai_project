@@ -44,7 +44,9 @@ class DefaultPredictionResponse(BaseModel):
 
 class SimulationPredictionResponse(SinglePrediction):
     selected_features: dict[str, Any]
-    used_features: dict[str, Any] | None = None
+    used_feature_count: int
+    applied_selected_features: dict[str, Any] | None = None
+    ignored_selected_features: dict[str, Any] | None = None
 
 
 class ModelSummaryResponse(BaseModel):
@@ -54,3 +56,23 @@ class ModelSummaryResponse(BaseModel):
 class FeatureListResponse(BaseModel):
     feature_count: int
     features: list[str]
+
+
+class ModelFeatureListResponse(BaseModel):
+    oil_type: str
+    model_type: str
+    feature_count: int
+    features: list[str]
+
+
+class SimulationOptionItem(BaseModel):
+    key: str
+    label: str
+    description: str | None = None
+    default_value: float | int | None = None
+    unit: str | None = None
+    category: str
+
+
+class SimulationOptionsResponse(BaseModel):
+    categories: dict[str, list[SimulationOptionItem]]
