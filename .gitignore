@@ -25,7 +25,6 @@ data/collected_data/
 *.csv
 
 # Model files
-*.pkl
 *.joblib
 
 # Experiment outputs
