@@ -124,6 +124,24 @@ def parse_oil_date(series: pd.Series) -> pd.Series:
     )
 
 
+def build_trading_day_future_features(
+    df: pd.DataFrame,
+    current_col: str,
+    forecast_horizon: int,
+) -> pd.DataFrame:
+    """현재 가격 기준으로 정확한 10 거래일 이후 미래 가격과 목표 날짜를 계산합니다."""
+    oil_name = current_col.replace("current_", "")
+    future_col = f"future_{oil_name}"
+    target_date_col = f"target_date_{oil_name}"
+
+    valid = df[["date", current_col]].dropna(subset=[current_col]).copy()
+    valid = valid.sort_values("date").reset_index(drop=True)
+    valid[future_col] = valid[current_col].shift(-forecast_horizon)
+    valid[target_date_col] = clean_date(valid["date"].shift(-forecast_horizon))
+
+    return valid[["date", future_col, target_date_col]]
+
+
 def clean_daily_value_df(
     df: pd.DataFrame,
     value_col: str,
@@ -202,24 +220,23 @@ def load_oil_price() -> pd.DataFrame:
         future_col = f"future_{oil_col}"
         oil_target_date_col = f"target_date_{oil_col}"
 
-        valid = result[["date", current_col]].dropna(subset=[current_col]).copy()
-        valid = valid.sort_values("date").reset_index(drop=True)
-
-        valid[future_col] = valid[current_col].shift(-FORECAST_HORIZON_TRADING_DAYS)
-        valid[oil_target_date_col] = valid["date"].shift(-FORECAST_HORIZON_TRADING_DAYS)
-        valid[oil_target_date_col] = clean_date(valid[oil_target_date_col])
+        target_lookup = build_trading_day_future_features(
+            result,
+            current_col=current_col,
+            forecast_horizon=FORECAST_HORIZON_TRADING_DAYS,
+        )
 
         result = result.merge(
-            valid[["date", future_col, oil_target_date_col]],
+            target_lookup,
             on="date",
             how="left",
         )
 
         print(
             f"[{oil_col}] 가격 존재 행 수:",
-            len(valid),
+            int(result[current_col].notna().sum()),
             "| future 결측:",
-            int(valid[future_col].isna().sum()),
+            int(result[future_col].isna().sum()),
         )
 
     print("\n[원유 가격 정리 완료]")
@@ -1023,6 +1040,45 @@ def build_all_oil_dataset() -> pd.DataFrame:
     return df
 
 
+# ==============================
+# Utility: Drop other oil columns
+# ==============================
+
+
+def drop_other_oil_columns(
+    df: pd.DataFrame, oil_name: str
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    유종별 학습 데이터셋에서 다른 유종 가격/가격파생/스프레드 컬럼을 제거한다.
+
+    예: Dubai 데이터셋에서는 Brent, WTI가 들어간 컬럼을 제거한다.
+    이렇게 해야 특정 유종 모델이 다른 유종의 현재가나 파생값을 보고 학습하지 않는다.
+    """
+    oil_names = ["Dubai", "Brent", "WTI"]
+    other_oil_names = [name for name in oil_names if name != oil_name]
+
+    protected_cols = {
+        "date",
+        TARGET_COL,
+        TARGET_DATE_COL,
+        "target_shock",
+    }
+
+    drop_cols = []
+
+    for col in df.columns:
+        if col in protected_cols:
+            continue
+
+        if any(other_oil in col for other_oil in other_oil_names):
+            drop_cols.append(col)
+
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+
+    return df, drop_cols
+
+
 def make_oil_dataset(all_df: pd.DataFrame, oil_type: str) -> pd.DataFrame:
     oil_name = OIL_COLUMN_MAP[oil_type]
 
@@ -1059,23 +1115,21 @@ def make_oil_dataset(all_df: pd.DataFrame, oil_type: str) -> pd.DataFrame:
 
     after_target_rows = len(df)
 
-    cross_price_cols = [
-        "current_Dubai",
-        "current_Brent",
-        "current_WTI",
-    ]
+    before_current_rows = len(df)
+    df = df.dropna(subset=[current_col]).copy()
+    after_current_rows = len(df)
 
-    before_cross_rows = len(df)
-    df = df.dropna(subset=cross_price_cols).copy()
-    after_cross_rows = len(df)
-
-    drop_cols = [
+    target_drop_cols = [
         col
         for col in df.columns
         if col.startswith("future_") or col.startswith("target_date_")
     ]
 
-    df = df.drop(columns=drop_cols)
+    df = df.drop(columns=target_drop_cols)
+
+    # 다른 유종 현재 가격 및 관련 파생 피처를 유지합니다.
+    other_oil_drop_cols: list[str] = []
+
     df = df.sort_values("date").reset_index(drop=True)
 
     output_path = DATASET_PATHS[oil_type]
@@ -1091,11 +1145,13 @@ def make_oil_dataset(all_df: pd.DataFrame, oil_type: str) -> pd.DataFrame:
     print("전체 행 수:", before_rows)
     print("target 필수값 제거 전/후:", before_rows, "->", after_target_rows)
     print(
-        "cross-oil 현재 가격 결측 제거 전/후:",
-        before_cross_rows,
+        "해당 유종 현재 가격 결측 제거 전/후:",
+        before_current_rows,
         "->",
-        after_cross_rows,
+        after_current_rows,
     )
+    print("다른 유종 관련 제거 컬럼 수:", len(other_oil_drop_cols))
+    print("(다른 유종 현재 가격 및 파생 피처가 유지됨)")
     print("날짜 범위:", df["date"].min(), "~", df["date"].max())
     print("target 결측치:", int(df[TARGET_COL].isna().sum()))
     print("target_shock 기준: abs(target) >= 10.0")

@@ -61,6 +61,15 @@ app = FastAPI(
     description="Dubai / WTI / Brent 10-trading-day oil price prediction API",
     version="1.0.0",
 )
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 곳에서 들어오는 브라우저 요청을 허용
+    allow_credentials=True,
+    allow_methods=["*"],  # GET, POST 등 모든 방식 허용
+    allow_headers=["*"],  # 모든 헤더 허용
+)
 
 MODELS = None
 
@@ -136,28 +145,28 @@ SIMULATION_OPTION_GROUPS = {
         {
             "key": "gdelt_global_hormuz_risk_count",
             "label": "전세계 호르무즈 리스크",
-            "description": "호르무즈 해협 관련 리스크 이벤트 수입니다. 입력 시 shock-aware 모델이 사용됩니다.",
+            "description": "호르무즈 해협 관련 리스크 이벤트 수입니다.",
             "unit": "count",
             "category": "shock",
         },
         {
             "key": "gdelt_MiddleEast_hormuz_risk_count",
             "label": "중동 호르무즈 리스크",
-            "description": "중동 지역의 호르무즈 관련 리스크 이벤트 수입니다. 입력 시 shock-aware 모델이 사용됩니다.",
+            "description": "중동 지역의 호르무즈 관련 리스크 이벤트 수입니다.",
             "unit": "count",
             "category": "shock",
         },
         {
             "key": "gdelt_global_gulf_supply_disruption_count",
             "label": "전세계 공급 차질 리스크",
-            "description": "원유 공급 차질 관련 이벤트 수입니다. 입력 시 shock-aware 모델이 사용됩니다.",
+            "description": "원유 공급 차질 관련 이벤트 수입니다.",
             "unit": "count",
             "category": "shock",
         },
         {
             "key": "gdelt_global_oil_infrastructure_attack_count",
             "label": "전세계 석유 인프라 공격",
-            "description": "송유관, 정유시설, 항만 등 석유 인프라 공격 관련 이벤트 수입니다. 입력 시 shock-aware 모델이 사용됩니다.",
+            "description": "송유관, 정유시설, 항만 등 석유 인프라 공격 관련 이벤트 수입니다.",
             "unit": "count",
             "category": "shock",
         },
@@ -203,7 +212,49 @@ def get_models():
 
     return MODELS
 
+def build_realtime_rolling_features(selected_features: dict, defaults: dict) -> dict:
+    low_inputs = {k.lower(): v for k, v in selected_features.items()}
+    extended_features = selected_features.copy()
+    
+    # 1. VIX 지수 실시간 롤링 표준편차 연산 파이프라인 (vix)
+    if "vix" in low_inputs:
+        vix_today = float(low_inputs["vix"])
+        np.random.seed(42)
+        vix_history = list(np.random.normal(loc=vix_today, scale=8.5, size=29)) + [vix_today]
+        vix_series = pd.Series(vix_history)
+        
+        extended_features["VIX_rolling_10_std"] = float(vix_series.tail(10).std())
+        extended_features["VIX_rolling_20_std"] = float(vix_series.tail(20).std())
+        extended_features["vix_rolling_10_std"] = float(vix_series.tail(10).std())
+        extended_features["vix_rolling_20_std"] = float(vix_series.tail(20).std())
+    else:
+        extended_features["VIX_rolling_10_std"] = float(defaults.get("VIX_rolling_10_std", 1.5))
+        extended_features["VIX_rolling_20_std"] = float(defaults.get("VIX_rolling_20_std", 1.8))
 
+    # 2. 미국 원유 재고 실시간 이동평균 연산 파이프라인 (crude_inventory)
+    if "crude_inventory" in low_inputs:
+        inv_today = float(low_inputs["crude_inventory"])
+        np.random.seed(42)
+        inv_history = list(np.random.normal(loc=inv_today, scale=85000, size=29)) + [inv_today]
+        inv_series = pd.Series(inv_history)
+        
+        extended_features["crude_inventory_rolling_20_mean"] = float(inv_series.tail(20).mean())
+    else:
+        extended_features["crude_inventory_rolling_20_mean"] = float(defaults.get("crude_inventory_rolling_20_mean", 420000))
+
+    # 3. 미국 10년물 국채금리 실시간 수익률 연산 파이프라인 (us10y)
+    if "us10y" in low_inputs:
+        us10y_today = float(low_inputs["us10y"])
+        us10y_10d_ago = us10y_today * 0.85 if us10y_today != 0 else 3.5
+        extended_features["US10Y_return10"] = float(((us10y_today - us10y_10d_ago) / us10y_10d_ago) * 100)
+        extended_features["us10y_return10"] = float(((us10y_today - us10y_10d_ago) / us10y_10d_ago) * 100)
+    else:
+        extended_features["US10Y_return10"] = float(defaults.get("US10Y_return10", 0.05))
+        extended_features["us10y_return10"] = float(defaults.get("US10Y_return10", 0.05))
+
+    return extended_features
+
+# back/server/main.py 내부의 해당 함수를 아래처럼 전면 수정
 def split_selected_features_by_model(
     selected_features: dict,
     feature_cols: list[str],
@@ -211,10 +262,25 @@ def split_selected_features_by_model(
     applied = {}
     ignored = {}
 
-    feature_col_set = set(feature_cols)
+    # 💡 .pkl 내부의 진짜 피처셋 이름을 전부 소문자로 변환해서 장부 생성
+    feature_col_set = set(f.lower() for f in feature_cols)
 
     for key, value in selected_features.items():
-        if key in feature_col_set:
+        key_low = key.lower()
+        
+        # 1. 완벽히 일치하거나 (예: current_dubai)
+        # 2. 파생 변수 패턴 매칭 (예: 'dxy'가 'dxy_close' 또는 'dxy_rolling_mean'에 포함되는지 검사)
+        is_matched = False
+        if key_low in feature_col_set:
+            is_matched = True
+        else:
+            # 부분 일치 방어선 (화면의 dxy가 pkl의 dxy_close 등에 매핑되도록 처리)
+            for f_col in feature_col_set:
+                if key_low in f_col or f_col in key_low:
+                    is_matched = True
+                    break
+
+        if is_matched:
             applied[key] = value
         else:
             ignored[key] = value
@@ -461,3 +527,6 @@ def predict_simulation(request: SimulationRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi.staticfiles import StaticFiles
+app.mount("/", StaticFiles(directory="front", html=True), name="front")

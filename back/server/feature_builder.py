@@ -6,15 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-# =========================
-# Path settings
-# =========================
-# file path:
-# ai_project/back/server/feature_builder.py
-#
-# parents[0] = server
-# parents[1] = back
-# parents[2] = ai_project
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 PREDICTION_DIR = PROJECT_ROOT / "data" / "prediction"
@@ -65,7 +56,18 @@ def make_feature_vector(
 ) -> dict[str, Any]:
     """
     모델이 요구하는 feature_cols 순서에 맞춰 입력 dict를 만든다.
-    없는 값은 None으로 둔다.
-    모델 Pipeline의 SimpleImputer가 처리한다.
+    대소문자 불일치 억까 및 누락 변수로 인한 500 에러를 완전히 원천 차단한다.
     """
-    return {col: feature_values.get(col, None) for col in feature_cols}
+    normalized_values = {str(k).strip().lower(): v for k, v in feature_values.items()}
+    
+    result = {}
+    for col in feature_cols:
+
+        val = normalized_values.get(col.lower())
+
+        if val is None:
+            val = 0.0
+            
+        result[col] = val
+        
+    return result

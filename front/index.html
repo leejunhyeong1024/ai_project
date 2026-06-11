@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 유가 예측 시뮬레이터</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="app.js" defer></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-icon">🛢️</div>
+      <div class="brand-name">Oil<span>Cast</span> <sup class="brand-sub">AI Lab</sup></div>
+    </div>
+    <div class="topbar-meta">
+      <div class="meta-item"><div class="live-dot"></div><strong>FastAPI 서버 연동됨</strong></div>
+      <span class="model-tag" id="serverModeTag">🟢 MODE: DEFAULT</span>
+    </div>
+  </div>
+</header>
+
+<div class="page">
+  <div class="page-title-row">
+    <div class="page-title">
+      인공지능시스템 통합 테스트 벤치
+      <span>FastAPI 분석 엔진과 실시간 통신하여 10거래일 뒤 예측치를 도출합니다.</span>
+    </div>
+  </div>
+
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label"><span class="kpi-dot" style="background:#1A56DB"></span>Dubai 디폴트 (10d 예측)</div>
+      <div class="kpi-val" id="kpiDubaiPrice">$0.00</div>
+      <div class="kpi-sub" id="kpiDubaiDelta">0.00%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label"><span class="kpi-dot" style="background:#059669"></span>WTI 디폴트 (10d 예측)</div>
+      <div class="kpi-val" id="kpiWtiPrice">$0.00</div>
+      <div class="kpi-sub" id="kpiWtiDelta">0.00%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label"><span class="kpi-dot" style="background:#7C3AED"></span>Brent 디폴트 (10d 예측)</div>
+      <div class="kpi-val" id="kpiBrentPrice">$0.00</div>
+      <div class="kpi-sub" id="kpiBrentDelta">0.00%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label"><span class="kpi-dot" style="background:#10B981"></span>현재 시뮬레이션 타겟</div>
+      <div class="kpi-val" id="kpiTargetName">Dubai</div>
+      <div class="kpi-sub">하단 제어판 연동 중</div>
+    </div>
+  </div>
+
+  <div class="predict-hero">
+    <div class="predict-main" id="predictMainBlock">
+      <div class="predict-eyebrow" id="predictDynamicTitle">Dubai 시뮬레이션 예측가</div>
+      <div class="predict-number up" id="predictNumber">$0.00</div>
+      <div class="predict-delta up" id="predictDelta">
+        <span class="delta-arrow" id="deltaArrow">▲</span>
+        <span id="deltaText">+$0.00 (0.00%)</span>
+      </div>
+    </div>
+
+    <div class="predict-meta">
+      <div class="predict-meta-title">시뮬레이션 모델 주요 Feature</div>
+      <div class="factor-rows" id="factorRows"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon" style="background:#FFF7ED">⚡</div>실험 변수 제어판</div>
+      <div class="card-sub">원유를 변경하면 해당 모델이 사용하는 핵심 Feature만 필터링되어 출력됩니다.</div>
+
+      <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 1.5rem;">
+        <label style="display:block; font-size:0.75rem; font-weight:600; margin-bottom:4px; color:#64748b;">🎯 예측 대상 원유 선택</label>
+        <select id="targetOilSelect" onchange="onTargetOilChange()" style="width:100%; padding:8px; border-radius:6px; border:1px solid #cbd5e1; font-size:0.85rem; cursor:pointer; font-family:var(--font);">
+          <option value="Dubai" selected>Dubai (중동산 두바이유)</option>
+          <option value="WTI">WTI (서부 텍사스산 원유)</option>
+          <option value="Brent">Brent (북해산 브렌트유)</option>
+        </select>
+      </div>
+
+      <div class="simulator-grid" id="simulatorGrid">
+        <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center;">피처 동적 조립 중...</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="card-title-icon" style="background:#EBF2FF">📈</div>10거래일 유가 예측 그래프</div>
+      <div class="card-sub">현재가 기준 예측 타겟일까지 선형 시각화</div>
+      <div class="chart-wrap">
+        <canvas id="forecastChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="footer">
+  <p>© 2026 인공지능시스템 유가 예측 프로젝트 통합 테스트 벤치</p>
+</footer>
+
+</body>
+</html>

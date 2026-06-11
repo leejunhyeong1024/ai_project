@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -14,9 +14,9 @@ class HealthResponse(BaseModel):
 class StatusResponse(BaseModel):
     server: str
     models_loaded: bool
-    default_feature_count: int | None = None
+    default_feature_count: Optional[int] = None
     default_features_available: bool
-    default_feature_error: str | None = None
+    default_feature_error: Optional[str] = None
 
 
 class SimulationRequest(BaseModel):
@@ -32,9 +32,9 @@ class SinglePrediction(BaseModel):
     predicted_price_10d: float
     horizon_trading_days: int
     feature_count: int
-    feature_set: str | None = None
-    model_name: str | None = None
-    train_cutoff: str | None = None
+    feature_set: Optional[str] = None
+    model_name: Optional[str] = None
+    train_cutoff: Optional[str] = None
 
 
 class DefaultPredictionResponse(BaseModel):
@@ -45,8 +45,8 @@ class DefaultPredictionResponse(BaseModel):
 class SimulationPredictionResponse(SinglePrediction):
     selected_features: dict[str, Any]
     used_feature_count: int
-    applied_selected_features: dict[str, Any] | None = None
-    ignored_selected_features: dict[str, Any] | None = None
+    applied_selected_features: Optional[dict[str, Any]] = None
+    ignored_selected_features: Optional[dict[str, Any]] = None
 
 
 class ModelSummaryResponse(BaseModel):
@@ -68,9 +68,9 @@ class ModelFeatureListResponse(BaseModel):
 class SimulationOptionItem(BaseModel):
     key: str
     label: str
-    description: str | None = None
-    default_value: float | int | None = None
-    unit: str | None = None
+    description: Optional[str] = None
+    default_value: Optional[Union[float, int]] = None
+    unit: Optional[str] = None
     category: str
 
 

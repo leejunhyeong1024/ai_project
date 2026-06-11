@@ -6,9 +6,6 @@ from datetime import datetime
 
 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⏳ 실시간 일일 데이터 수집 가동 (latest_feature_defaults 대상)...")
 
-# ==========================================
-# 1. 금융 & 원유 시장 데이터 실시간 수집 (Yahoo Finance API)
-# ==========================================
 def get_latest_market_data(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
@@ -27,9 +24,6 @@ latest_brent = get_latest_market_data("BZ=F")
 latest_wti = get_latest_market_data("CL=F")       
 latest_dubai = round(latest_brent - 0.5, 3) if latest_brent > 0 else 0.0
 
-# ==========================================
-# 2. 지정학적 뉴스 데이터 실시간 수집 (GDELT 2.0 API)
-# ==========================================
 def get_today_gdelt_tone(query):
     try:
         url = f"https://api.gdeltproject.org/api/v2/doc/doc?query={query}&mode=Tone&format=json&timespan=1d"
@@ -60,13 +54,9 @@ gulf_supply_cnt = get_today_gdelt_count('("oil supply disruption" OR "production
 oil_attack_cnt = get_today_gdelt_count('("oil facility" OR "pipeline") AND "attack"')
 today_news_tone = get_today_gdelt_tone("oil OR economy OR crisis")
 
-# 고정 지표 설정 (GPR 및 원유 재고 최신값 반영)
 latest_gpr = 115.5          
 latest_crude = 459000.0     
 
-# ==========================================
-# 3. 서버 config 규격에 맞춘 JSON 구조 생성
-# ==========================================
 live_features = {
     "vix": float(latest_vix),
     "dxy": float(latest_dxy),
@@ -85,28 +75,19 @@ live_features = {
     "current_WTI": float(latest_wti)
 }
 
-# ==========================================
-# 4. 서버 진짜 루트 폴더(data/prediction) 역추적 및 덮어씌우기
-# ==========================================
-# 현재 파이썬 파일이 있는 위치 추적
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 만약 스크립트가 'back/server' 또는 'back' 안에 있다면 최상단(ai_project)으로 올라감
 if "server" in BASE_DIR or "back" in BASE_DIR:
-    # 찐 프로젝트 최상단 폴더 찾기
     PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR)) if "server" in BASE_DIR else os.path.dirname(BASE_DIR)
 else:
     PROJECT_ROOT = BASE_DIR
 
-# 찐 프로젝트 최상단 기준 data/prediction 폴더 정확하게 조준
 SERVER_TARGET_DIR = os.path.join(PROJECT_ROOT, "data", "prediction")
 
-# (혹시 몰라서) 폴더가 진짜 없으면 만들고, 있으면 무시
 os.makedirs(SERVER_TARGET_DIR, exist_ok=True)
 
 target_file_path = os.path.join(SERVER_TARGET_DIR, "latest_feature_defaults.json")
 
-# 기존 파일 자비 없이 덮어씌우기 ("w" 모드)
 with open(target_file_path, "w", encoding="utf-8") as f:
     json.dump(live_features, f, indent=4, ensure_ascii=False)
 
