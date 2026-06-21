@@ -5,6 +5,10 @@ on:
     - cron: '5 15 * * *' # 매일 한국 시간 00시 05분 자동 실행
   workflow_dispatch:
 
+# ★ [핵심 추가] 가상 봇에게 원격 저장소에 push 할 수 있는 쓰기 권한을 강제로 부여
+permissions:
+  contents: write
+
 jobs:
   update-data:
     runs-on: ubuntu-latest
@@ -23,7 +27,6 @@ jobs:
           pip install yfinance pandas requests
 
       - name: 데이터 업데이트 파이썬 스크립트 실행
-        # ★ 실행 위치를 back/server로 지정하여 내부 import 경로가 깨지는 현상 완벽 방어
         working-directory: back/server
         run: python daily_updater.py
 
@@ -32,7 +35,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # ★ 상위 루트 기준에서 바뀐 json 파일의 경로를 정확하게 추적하도록 설정
+          # 상위 루트 기준에서 바뀐 json 파일의 경로를 추적
           git add data/prediction/latest_feature_defaults.json
           
           git commit -m "🤖 [자동화] latest_feature_defaults 파일 갱신 완료" || echo "변경된 데이터가 없습니다."
