@@ -1,7 +1,7 @@
 {
-    "vix": 15.63,
-    "dxy": 99.09,
-    "us10y": 4.959,
+    "vix": 15.84,
+    "dxy": 99.12,
+    "us10y": 4.975,
     "crude_inventory": 459000.0,
     "gpr": 115.5,
     "hormuz_risk": 0,
@@ -9,7 +9,7 @@
     "oil_infrastructure_attack": 0,
     "news_tone": 0.0,
     "gdelt_avg_tone": 0.0,
-    "current_Dubai": 103.84,
-    "current_Brent": 104.34,
-    "current_WTI": 99.58
+    "current_Dubai": 104.11,
+    "current_Brent": 104.61,
+    "current_WTI": 100.05
 }
